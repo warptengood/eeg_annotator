@@ -21,11 +21,13 @@ from src.core.data_streamer import EEGDataStreamer
 config = Config()
 
 class AnnotationROI(pg.ROI):
+    sigSelected = pg.QtCore.Signal(object)  # emits self when left-clicked
+
     def __init__(self, pos, size, data: Dict, **kwargs):
         pg.ROI.__init__(
-            self, 
-            pos, 
-            size, 
+            self,
+            pos,
+            size,
             pen=pg.mkPen(color='b', width=3),
             hoverPen=pg.mkPen(color='r', width=5),
             handlePen=pg.mkPen(color='r', width=3),
@@ -47,6 +49,9 @@ class AnnotationROI(pg.ROI):
         self.addScaleHandle([0, 0.5], [1, 0.5])
 
         self._is_hovered = False
+        self._is_selected = False
+        self._normal_pen = pg.mkPen(color='b', width=3)
+        self._selected_pen = pg.mkPen(color=(255, 165, 0), width=4)  # orange border when selected
 
         self.data = data
         self.text_item = pg.TextItem(
@@ -56,15 +61,25 @@ class AnnotationROI(pg.ROI):
         )
         self.text_item.setPos(pos[0], pos[1])
 
-        self.setAcceptedMouseButtons(pg.QtCore.Qt.MouseButton.RightButton)
+        self.setAcceptedMouseButtons(
+            pg.QtCore.Qt.MouseButton.RightButton | pg.QtCore.Qt.MouseButton.LeftButton
+        )
         self.sigClicked.connect(self._on_clicked)
+
+    def set_selected(self, selected: bool):
+        """Toggle orange selection highlight."""
+        self._is_selected = selected
+        self.setPen(self._selected_pen if selected else self._normal_pen)
 
     def hoverEvent(self, ev):
         self._is_hovered = not ev.isExit()
         super().hoverEvent(ev)
 
     def _on_clicked(self, _roi, ev):
-        print("ROI Clicked")
+        if ev.button() == pg.QtCore.Qt.MouseButton.LeftButton:
+            self.sigSelected.emit(self)
+            ev.accept()
+            return
         if ev.button() == pg.QtCore.Qt.MouseButton.RightButton:
             label_dialog = LabelDialog()
             try:
@@ -157,6 +172,8 @@ class EEGPlotWidget(QWidget):
         # Annotation data
         self.annotation_items: List[AnnotationROI] = []
         self.selected_annotation_roi = None  # Currently selected annotation for highlighting
+        self._clipboard_annotation = None    # Copied annotation data dict
+        self._last_mouse_view_pos = None     # Cursor position in view coords (QPointF)
 
         # Drawing mode state
         self._draw_mode = False
@@ -328,6 +345,17 @@ class EEGPlotWidget(QWidget):
 
     def eventFilter(self, obj, event):
         """Handle keyboard and mouse events for navigation and drawing."""
+        # Always track mouse position in view coordinates for copy/paste
+        if obj == self.plot_widget.viewport() and event.type() == event.Type.MouseMove:
+            scene_pos = self.plot_widget.mapFromGlobal(event.globalPosition().toPoint())
+            self._last_mouse_view_pos = self.plot_widget.getViewBox().mapSceneToView(
+                QPointF(scene_pos)
+            )
+
+        # Deselect annotation on any background click (ROI click will re-select if needed)
+        if obj == self.plot_widget.viewport() and event.type() == event.Type.MouseButtonPress and not self._draw_mode:
+            self._deselect_all()
+
         # Mouse events are delivered to the viewport (QGraphicsView is a QAbstractScrollArea)
         if obj == self.plot_widget.viewport() and self._draw_mode:
             if event.type() == event.Type.MouseButtonPress:
@@ -358,6 +386,12 @@ class EEGPlotWidget(QWidget):
                 return True
             elif key_event.key() == Qt.Key.Key_Z and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 self.undo_annotation()
+                return True
+            elif key_event.key() == Qt.Key.Key_C and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self._copy_annotation()
+                return True
+            elif key_event.key() == Qt.Key.Key_V and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self._paste_annotation()
                 return True
             elif key_event.key() == Qt.Key.Key_L:
                 self.enable_selection_mode()
@@ -591,6 +625,7 @@ class EEGPlotWidget(QWidget):
         # Connect signals for data synchronization
         annotation_roi.sigRegionChangeFinished.connect(lambda: self._on_annotation_moved(annotation_roi))
         annotation_roi.sigRemoveRequested.connect(lambda: self._delete_annotation(annotation_roi))
+        annotation_roi.sigSelected.connect(self._select_annotation)
 
         # Connect region changed signal to update text position during drag
         annotation_roi.sigRegionChanged.connect(lambda: self._update_annotation_text_position(annotation_roi))
@@ -649,6 +684,7 @@ class EEGPlotWidget(QWidget):
         annotation_roi.sigRegionChangeFinished.disconnect()
         annotation_roi.sigRemoveRequested.disconnect()
         annotation_roi.sigRegionChanged.disconnect()
+        annotation_roi.sigSelected.disconnect()
 
         # Remove from visual items (both rect and text)
         self.plot_widget.removeItem(annotation_roi.text_item)
@@ -673,13 +709,86 @@ class EEGPlotWidget(QWidget):
                 self._delete_annotation(roi)
                 return
 
+    def _select_annotation(self, roi: AnnotationROI):
+        """Select an annotation, deselecting any previously selected one."""
+        if self.selected_annotation_roi and self.selected_annotation_roi is not roi:
+            self.selected_annotation_roi.set_selected(False)
+        self.selected_annotation_roi = roi
+        roi.set_selected(True)
+
+    def _deselect_all(self):
+        """Clear the current annotation selection."""
+        if self.selected_annotation_roi:
+            self.selected_annotation_roi.set_selected(False)
+        self.selected_annotation_roi = None
+
+    def _copy_annotation(self):
+        """Copy the currently selected annotation to the internal clipboard."""
+        if self.selected_annotation_roi is None:
+            return
+        src = self.selected_annotation_roi.data
+        self._clipboard_annotation = {
+            "channels": list(src["channels"]),
+            "start_time": src["start_time"],
+            "stop_time": src["stop_time"],
+            "onset": src["onset"],
+        }
+
+    def _paste_annotation(self):
+        """Paste the clipboard annotation at the current cursor X position."""
+        if self._clipboard_annotation is None or self._last_mouse_view_pos is None:
+            return
+
+        data = dict(self._clipboard_annotation)
+        data["channels"] = list(self._clipboard_annotation["channels"])
+
+        # Reposition: cursor X = start of pasted annotation, keep same duration
+        duration = data["stop_time"] - data["start_time"]
+        cursor_x = self._last_mouse_view_pos.x()
+        new_start = round(cursor_x)
+        new_end = round(cursor_x + duration)
+
+        # Clamp to file bounds
+        new_start = max(0, min(new_start, int(self.signal_duration) - 1))
+        new_end = max(new_start + 1, min(new_end, int(self.signal_duration)))
+        data["start_time"] = new_start
+        data["stop_time"] = new_end
+
+        # Validate channels exist in current montage
+        valid_channels = [c for c in data["channels"] if c in self.montage_list]
+        if not valid_channels:
+            return
+        data["channels"] = valid_channels
+
+        # Compute Y bounds using same formula as render_annotations
+        try:
+            first_idx = self.montage_list.index(valid_channels[0])
+            last_idx = self.montage_list.index(valid_channels[-1])
+        except ValueError:
+            return
+
+        y_min = min(first_idx, last_idx) * self.scale_factor
+        y_max = max(first_idx, last_idx) * self.scale_factor
+
+        annotation_roi = AnnotationROI(
+            pos=[new_start, y_min],
+            size=[new_end - new_start, y_max - y_min],
+            data=data,
+        )
+        self._create_editable_annotation_rect(annotation_roi)
+
+        if self.state:
+            self.state.enable_undo_button.emit(True)
+
     def render_annotations(self, annotations: Optional[List[Dict]] = None):
         """Render all saved annotations on the plot as EDITABLE rectangles."""
         # Clear existing annotation items
+        self._deselect_all()
         for annotation_roi in self.annotation_items:
             annotation_roi.sigRegionChangeFinished.disconnect()
             annotation_roi.sigRemoveRequested.disconnect()
             annotation_roi.sigRegionChanged.disconnect()
+            annotation_roi.sigSelected.disconnect()
             self.plot_widget.removeItem(annotation_roi.text_item)
             self.plot_widget.removeItem(annotation_roi)
 
@@ -728,6 +837,7 @@ class EEGPlotWidget(QWidget):
         annotation_roi.sigRegionChangeFinished.disconnect()
         annotation_roi.sigRemoveRequested.disconnect()
         annotation_roi.sigRegionChanged.disconnect()
+        annotation_roi.sigSelected.disconnect()
 
         self.plot_widget.removeItem(annotation_roi.text_item)
         self.plot_widget.removeItem(annotation_roi)

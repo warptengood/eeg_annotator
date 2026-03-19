@@ -198,7 +198,7 @@ The pasted annotation is identical to the original — same label, same channels
 
 ## 7. Annotation Labels Reference
 
-The following 44 labels are available in the label selection dialog:
+The following 49 labels are available in the label selection dialog:
 
 ### Background / General
 | Label | Meaning |
@@ -207,6 +207,9 @@ The following 44 labels are available in the label selection dialog:
 | **ARTF** | Artifact (general) |
 | **INTR** | Intrusion |
 | **SLOW** | Slowing |
+| **KCOMP**| K-complexes |
+| **SLPSP**| Sleep spindles (often referred to as "veretena" or "spindles" in EEG literature) |
+| **VERX** | Vertex sharp waves (V waves) |
 
 ### Rhythmic Patterns
 | Label | Meaning |
@@ -225,6 +228,8 @@ The following 44 labels are available in the label selection dialog:
 | **LED** | Lateralized epileptiform discharge |
 | **HPHS** | Hypsarrhythmia |
 | **TRIP** | Triphasic waves |
+| **6SP** | 6 Hz positive spikes (also known as "phantom spike-and-wave" or ctenoids) |
+| **HYPHYP** | Hypnagogic Hypersynchrony
 
 ### Eye / Muscle Artifacts
 | Label | Meaning |

@@ -10,7 +10,7 @@
 
 ![Multiple annotations on EEG recording](docs/screenshots/08_multiple_annotations.png)
 
-Load any EDF file, navigate the trace, and mark regions with 44 clinical labels — all without a hospital workstation. Streams data on demand so 100 MB+ files open in seconds and use under 50 MB of RAM.
+Load any EDF file, navigate the trace, and mark regions with 49 clinical labels — all without a hospital workstation. Streams data on demand so 100 MB+ files open in seconds and use under 50 MB of RAM.
 
 ---
 
@@ -33,7 +33,7 @@ Load any EDF file, navigate the trace, and mark regions with 44 clinical labels 
 
 **Annotation**
 - Draw rectangles across any time range and channel selection
-- 44 pre-defined clinical labels (SEIZ, ARTF, AR, MUSC, EYBL, …)
+- 49 pre-defined clinical labels (SEIZ, ARTF, AR, MUSC, EYBL, …)
 - Move, resize, copy/paste, and delete annotations
 - Ctrl+Z undo
 

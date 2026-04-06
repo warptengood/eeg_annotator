@@ -86,4 +86,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, architecture, and how to a
 
 ---
 
-*Ziyatron EEG Annotator v2.0 · GPL-3.0 · by Kenes Yerassyl*
+## Author & License
+
+**Ziyatron EEG Annotator** is created and maintained by **Kenes Yerassyl**.
+
+- Original repository: [github.com/warptengood/eeg_annotator](https://github.com/warptengood/eeg_annotator)
+- Contact: kenesyerassyl@gmail.com
+
+This project is licensed under the **GNU General Public License v3.0** — see [LICENSE](LICENSE) for details.
+
+Copyright © 2024–2026 Kenes Yerassyl. All source files carry the full GPL-3.0 copyright header.
+
+If you encounter a copy of this software without proper attribution, it is in violation of the license terms.

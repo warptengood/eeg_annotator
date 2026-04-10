@@ -46,7 +46,7 @@ class ControlToolBar(QToolBar):
 
         # Montage selection
         self.select_montage = QComboBox()
-        self.select_montage.addItems(montage_manager.montage_types)
+        self.select_montage.addItems(sorted(montage_manager.montages.keys()))
         self.select_montage.currentTextChanged.connect(self.on_montage_changed)
 
         # File operations

@@ -126,7 +126,7 @@ class EEGAnnotator(QMainWindow):
             # Load EDF file with current montage and filter settings
             self.eeg_plot_widget.load_edf_file(
                 filename=str(self.filename),
-                montage=self.state.montage,
+                montage_name=self.state.montage_name,
                 filter_params=self.state.filter
             )
 
@@ -159,7 +159,7 @@ class EEGAnnotator(QMainWindow):
 
         work_dir = self.filename.parent
         eeg_file_name = self.filename.stem
-        annotation_file_path = work_dir / f"{eeg_file_name}_{self.state.montage.replace(' ', '_')}.csv"
+        annotation_file_path = work_dir / f"{eeg_file_name}_{self.state.montage_name.replace(' ', '_')}.csv"
 
         if not annotation_file_path.exists():
             logger.info("No existing annotations found")
@@ -224,7 +224,7 @@ class EEGAnnotator(QMainWindow):
 
         work_dir = self.filename.parent
         eeg_file_name = self.filename.stem
-        annotation_file_path = work_dir / f"{eeg_file_name}_{self.state.montage.replace(' ', '_')}.csv"
+        annotation_file_path = work_dir / f"{eeg_file_name}_{self.state.montage_name.replace(' ', '_')}.csv"
 
         try:
             # Expand annotations (one row per channel)
@@ -273,7 +273,7 @@ class EEGAnnotator(QMainWindow):
             # Reload with new settings
             self.eeg_plot_widget.load_edf_file(
                 filename=str(self.filename),
-                montage=self.state.montage,
+                montage_name=self.state.montage_name,
                 filter_params=self.state.filter
             )
 
@@ -285,7 +285,7 @@ class EEGAnnotator(QMainWindow):
             # Reload annotations
             self.load_annotations()
 
-            logger.info(f"Reloaded with montage={self.state.montage}, filter={self.state.filter}")
+            logger.info(f"Reloaded with montage={self.state.montage_name}, filter={self.state.filter}")
 
         except Exception as e:
             logger.error(f"Failed to reload with new settings: {e}")

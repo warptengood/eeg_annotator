@@ -1,0 +1,38 @@
+FP1-A1:
+ - "EEG FP1-A1"
+F3-A1:
+ - "EEG F3-A1"
+C3-A1:
+ - "EEG C3-A1"
+P3-A1:
+ - "EEG P3-A1"
+O1-A1:
+ - "EEG O1-A1"
+F7-A1:
+ - "EEG F7-A1"
+T3-A1:
+ - "EEG T3-A1"
+T5-A1:
+ - "EEG T5-A1"
+CZ-A1:
+ - "EEG CZ-A1"
+FP2-A2:
+ - "EEG FP2-A2"
+F4-A2:
+ - "EEG F4-A2"
+C4-A2:
+ - "EEG C4-A2"
+P4-A2:
+ - "EEG P4-A2"
+O2-A2:
+ - "EEG O2-A2"
+F8-A2:
+ - "EEG F8-A2"
+T4-A2:
+ - "EEG T4-A2"
+T6-A2:
+ - "EEG T6-A2"
+FZ-A2:
+ - "EEG FZ-A2"
+PZ-A2:
+ - "EEG PZ-A2"

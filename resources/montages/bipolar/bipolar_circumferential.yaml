@@ -1,0 +1,70 @@
+FP1-F7:
+  REF:
+  - EEG FP1-A1
+  - EEG F7-A1
+  AV:
+  - EEG FP1-AV
+  - EEG F7-AV
+F7-T3:
+  REF:
+  - EEG F7-A1
+  - EEG T3-A1
+  AV:
+  - EEG F7-AV
+  - EEG T3-AV
+T3-T5:
+  REF:
+  - EEG T3-A1
+  - EEG T5-A1
+  AV:
+  - EEG T3-AV
+  - EEG T5-AV
+T5-O1:
+  REF:
+  - EEG T5-A1
+  - EEG O1-A1
+  AV:
+  - EEG T5-AV
+  - EEG O1-AV
+O1-O2:
+  REF:
+  - EEG O1-A1
+  - EEG O2-A2
+  AV:
+  - EEG O1-AV
+  - EEG O2-AV
+O2-T6:
+  REF:
+  - EEG O2-A2
+  - EEG T6-A2
+  AV:
+  - EEG O2-AV
+  - EEG T6-AV
+T6-T4:
+  REF:
+  - EEG T6-A2
+  - EEG T4-A2
+  AV:
+  - EEG T6-AV
+  - EEG T4-AV
+T4-F8:
+  REF:
+  - EEG T4-A2
+  - EEG F8-A2
+  AV:
+  - EEG T4-AV
+  - EEG F8-AV
+F8-FP2:
+  REF:
+  - EEG F8-A2
+  - EEG FP2-A2
+  AV:
+  - EEG F8-AV
+  - EEG FP2-AV
+FP2-FP1:
+  REF:
+  - EEG FP2-A2
+  - EEG FP1-A1
+  AV:
+  - EEG FP2-AV
+  - EEG FP1-AV

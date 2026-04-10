@@ -51,6 +51,7 @@ class EEGDataStreamer:
         self.filename: Optional[Path] = None
         self.current_montage: Optional[str] = None
         self.current_filter: Tuple[Optional[float], Optional[float]] = (None, None)
+        self._monopolar_type: Optional[str] = None
 
     def open_edf(self, filename: Union[str, Path]) -> None:
         """Open EDF file handle without loading data into memory.
@@ -82,6 +83,10 @@ class EEGDataStreamer:
             # Clear cache when opening new file
             self.window_cache.clear()
 
+            # Cache monopolar type (static per file, avoids regex on every window load)
+            eeg_channels = [ch for ch in self.metadata['ch_names'] if ch.startswith('EEG')]
+            self._monopolar_type = montage_manager.get_monopolar_type(eeg_channels)
+
             logger.info(
                 f"Opened EDF: {filename} "
                 f"({self.metadata['n_channels']} channels, "
@@ -95,7 +100,7 @@ class EEGDataStreamer:
         self,
         start_time: float,
         duration: float,
-        montage: str,
+        montage_name: str,
         filter_params: Tuple[Optional[float], Optional[float]],
         buffer_seconds: float = 2.0
     ) -> mne.io.Raw:
@@ -122,7 +127,7 @@ class EEGDataStreamer:
             raise RuntimeError("No EDF file is open. Call open_edf() first.")
 
         # Create cache key for this exact window configuration
-        cache_key = (start_time, duration, montage, tuple(filter_params))
+        cache_key = (start_time, duration, montage_name, tuple(filter_params))
 
         # Return cached window if available
         if cache_key in self.window_cache:
@@ -143,7 +148,7 @@ class EEGDataStreamer:
             window_data.load_data()  # Load only this small window into memory
 
             # Apply montage transformation on small window
-            window_data = self._apply_montage(window_data, montage)
+            window_data = self._apply_montage(window_data, montage_name)
 
             # Apply filter on small window
             window_data = self._apply_filter(window_data, filter_params)
@@ -162,7 +167,7 @@ class EEGDataStreamer:
         except Exception as e:
             raise RuntimeError(f"Failed to load window at {start_time}s: {e}")
 
-    def _apply_montage(self, raw: mne.io.Raw, montage: str) -> mne.io.Raw:
+    def _apply_montage(self, raw: mne.io.Raw, montage_name: str) -> mne.io.Raw:
         """Apply montage transformation to raw data.
 
         Args:
@@ -172,34 +177,37 @@ class EEGDataStreamer:
         Returns:
             Transformed Raw object with montage applied
         """
-        if montage.startswith('BIPOLAR'):
+        montage = montage_manager.get_montage(montage_name)
+        if montage.type == 'monopolar':
             try:
-                montage_config = montage_manager.get_montage(montage)
-
-                ch_name, anode, cathode = [], [], []
-                for k, v in montage_config.items():
-                    ch_name.append(k)
-                    anode.append(v[0])
-                    cathode.append(v[1])
-
-                raw = mne.set_bipolar_reference(
-                    raw,
-                    anode=anode,
-                    cathode=cathode,
-                    ch_name=ch_name,
-                    drop_refs=True,
-                    copy=False,  # Modify in-place to save memory
-                    verbose=False,
-                )
-                raw.pick(ch_name)
-
-            except KeyError as e:
-                logger.error(f"Montage configuration error: {e}")
+                electrodes = [channels[0] for channels in montage.configuration.values()]
+                raw.pick(electrodes)
+                raw.rename_channels({channels[0]: ch_name for ch_name, channels in montage.configuration.items()})
+            except Exception as e:
+                logger.exception(f"Montage configuration error: {e}")
                 # Return unmodified if montage fails
+        elif montage.type == 'bipolar':
+            try:
+                if self._monopolar_type:
+                    ch_name, anode, cathode = [], [], []
+                    for conf_ch_name, conf_monopolar_types in montage.configuration.items():
+                        ch_name.append(conf_ch_name)
+                        anode.append(conf_monopolar_types[self._monopolar_type][0])
+                        cathode.append(conf_monopolar_types[self._monopolar_type][1])
+                    raw = mne.set_bipolar_reference(
+                        raw,
+                        anode=anode,
+                        cathode=cathode,
+                        ch_name=ch_name,
+                        drop_refs=True,
+                        copy=False,  # Modify in-place to save memory
+                        verbose=False,
+                    )
+                    raw.pick(ch_name)
 
-        # For AVERAGE montage, data is already in average reference
-        # (no transformation needed, just return as-is)
-
+            except Exception as e:
+                logger.exception(f"Montage configuration error: {e}")
+                # Return unmodified if montage fails
         return raw
 
     def _apply_filter(

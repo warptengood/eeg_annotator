@@ -1,0 +1,10 @@
+FPZ-AV:
+ - "EEG FPZ-AV"
+FZ-AV:
+ - "EEG FZ-AV"
+CZ-AV:
+ - "EEG CZ-AV"
+PZ-AV:
+ - "EEG PZ-AV"
+OZ-AV:
+ - "EEG OZ-AV"

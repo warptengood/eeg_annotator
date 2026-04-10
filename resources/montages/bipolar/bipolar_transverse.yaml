@@ -1,0 +1,105 @@
+FP1-F7:
+  REF:
+  - EEG FP1-A1
+  - EEG F7-A1
+  AV:
+  - EEG FP1-AV
+  - EEG F7-AV
+F7-F3:
+  REF:
+  - EEG F7-A1
+  - EEG F3-A1
+  AV:
+  - EEG F7-AV
+  - EEG F3-AV
+F3-FZ:
+  REF:
+  - EEG F3-A1
+  - EEG FZ-A2
+  AV:
+  - EEG F3-AV
+  - EEG FZ-AV
+FZ-F4:
+  REF:
+  - EEG FZ-A2
+  - EEG F4-A2
+  AV:
+  - EEG FZ-AV
+  - EEG F4-AV
+F4-F8:
+  REF:
+  - EEG F4-A2
+  - EEG F8-A2
+  AV:
+  - EEG F4-AV
+  - EEG F8-AV
+F8-FP2:
+  REF:
+  - EEG F8-A2
+  - EEG FP2-A2
+  AV:
+  - EEG F8-AV
+  - EEG FP2-AV
+T3-C3:
+  REF:
+  - EEG T3-A1
+  - EEG C3-A1
+  AV:
+  - EEG T3-AV
+  - EEG C3-AV
+C3-CZ:
+  REF:
+  - EEG C3-A1
+  - EEG CZ-A1
+  AV:
+  - EEG C3-AV
+  - EEG CZ-AV
+CZ-C4:
+  REF:
+  - EEG CZ-A1
+  - EEG C4-A2
+  AV:
+  - EEG CZ-AV
+  - EEG C4-AV
+C4-T4:
+  REF:
+  - EEG C4-A2
+  - EEG T4-A2
+  AV:
+  - EEG C4-AV
+  - EEG T4-AV
+T5-P3:
+  REF:
+  - EEG T5-A1
+  - EEG P3-A1
+  AV:
+  - EEG T5-AV
+  - EEG P3-AV
+P3-PZ:
+  REF:
+  - EEG P3-A1
+  - EEG PZ-A2
+  AV:
+  - EEG P3-AV
+  - EEG PZ-AV
+PZ-P4:
+  REF:
+  - EEG PZ-A2
+  - EEG P4-A2
+  AV:
+  - EEG PZ-AV
+  - EEG P4-AV
+P4-T6:
+  REF:
+  - EEG P4-A2
+  - EEG T6-A2
+  AV:
+  - EEG P4-AV
+  - EEG T6-AV
+O1-O2:
+  REF:
+  - EEG O1-A1
+  - EEG O2-A2
+  AV:
+  - EEG O1-AV
+  - EEG O2-AV

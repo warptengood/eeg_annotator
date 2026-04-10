@@ -1,0 +1,38 @@
+FP1-AV:
+ - "EEG FP1-AV"
+F3-AV:
+ - "EEG F3-AV"
+C3-AV:
+ - "EEG C3-AV"
+P3-AV:
+ - "EEG P3-AV"
+O1-AV:
+ - "EEG O1-AV"
+F7-AV:
+ - "EEG F7-AV"
+T3-AV:
+ - "EEG T3-AV"
+T5-AV:
+ - "EEG T5-AV"
+FZ-AV:
+ - "EEG FZ-AV"
+CZ-AV:
+ - "EEG CZ-AV"
+PZ-AV:
+ - "EEG PZ-AV"
+FP2-AV:
+ - "EEG FP2-AV"
+F4-AV:
+ - "EEG F4-AV"
+C4-AV:
+ - "EEG C4-AV"
+P4-AV:
+ - "EEG P4-AV"
+O2-AV:
+ - "EEG O2-AV"
+F8-AV:
+ - "EEG F8-AV"
+T4-AV:
+ - "EEG T4-AV"
+T6-AV:
+ - "EEG T6-AV"

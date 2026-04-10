@@ -244,8 +244,20 @@ class EEGPlotWidget(QWidget):
 
         # Plot items storage
         self.channel_curves = []
+        self._channel_index: dict[str, int] = {}
 
-    def load_edf_file(self, filename: str, montage: str, filter_params: Tuple):
+    def _channel_y(self, channel_index: int) -> float:
+        """Convert channel index to inverted Y position (first channel at top)."""
+        return (len(self.montage_list) - 1 - channel_index) * self.scale_factor
+
+    def _y_to_channel_range(self, y_low: float, y_high: float) -> tuple[int, int]:
+        """Convert Y coordinate range to (first_ch, last_ch) indices (inverted)."""
+        n = len(self.montage_list)
+        first_ch = max(0, n - 1 - int(y_high / self.scale_factor))
+        last_ch = min(n - 1, n - 1 - int(y_low / self.scale_factor))
+        return first_ch, last_ch
+
+    def load_edf_file(self, filename: str, montage_name: str, filter_params: Tuple):
         """Load EDF file and initialize display.
 
         Args:
@@ -254,7 +266,7 @@ class EEGPlotWidget(QWidget):
             filter_params: Tuple of (low_freq, high_freq)
         """
         self.data_streamer.open_edf(filename)
-        self.current_montage = montage
+        self.current_montage = montage_name
         self.current_filter = filter_params
 
         metadata = self.data_streamer.get_metadata()
@@ -264,11 +276,12 @@ class EEGPlotWidget(QWidget):
         initial_window = self.data_streamer.get_window(
             start_time=0,
             duration=self.window_duration,
-            montage=montage,
+            montage_name=montage_name,
             filter_params=filter_params
         )
 
         self.montage_list = initial_window.ch_names
+        self._channel_index = {name: i for i, name in enumerate(self.montage_list)}
         n_channels = len(self.montage_list)
 
         # Setup plot with correct number of channels
@@ -297,7 +310,7 @@ class EEGPlotWidget(QWidget):
             self.channel_curves.append(curve)
 
         # Set Y-axis ticks to show channel names
-        y_ticks = [(i * self.scale_factor, name) for i, name in enumerate(self.montage_list)]
+        y_ticks = [(self._channel_y(i), name) for i, name in enumerate(self.montage_list)]
         y_axis = self.plot_widget.getAxis('left')
         y_axis.setTicks([y_ticks])
 
@@ -318,7 +331,7 @@ class EEGPlotWidget(QWidget):
         window_data = self.data_streamer.get_window(
             start_time=start_time,
             duration=duration,
-            montage=self.current_montage,
+            montage_name=self.current_montage,
             filter_params=self.current_filter
         )
 
@@ -327,8 +340,7 @@ class EEGPlotWidget(QWidget):
 
         # Update each channel's curve efficiently
         for i, curve in enumerate(self.channel_curves):
-            y_offset = i * self.scale_factor
-            curve.setData(time_axis, signal[i] + y_offset)
+            curve.setData(time_axis, signal[i] + self._channel_y(i))
 
     def on_view_range_changed(self, _):
         """Called when user pans/zooms - triggers lazy loading of new window.
@@ -588,14 +600,11 @@ class EEGPlotWidget(QWidget):
             self._exit_draw_mode()
             return True
 
-        # Map Y coordinates to channel indices
         x_start = rect.left()
         x_end = rect.right()
-        y_start = rect.top()
-        y_end = rect.bottom()
-
-        first_ch = max(0, int(min(y_start, y_end) / self.scale_factor))
-        last_ch = min(len(self.montage_list) - 1, int(max(y_start, y_end) / self.scale_factor))
+        first_ch, last_ch = self._y_to_channel_range(
+            min(rect.top(), rect.bottom()), max(rect.top(), rect.bottom())
+        )
         selected_channels = self.montage_list[first_ch:last_ch + 1]
 
         if len(selected_channels) == 0:
@@ -680,9 +689,7 @@ class EEGPlotWidget(QWidget):
         y_start = pos[1]
         y_end = pos[1] + size[1]
 
-        # Determine new selected channels based on Y position
-        first_ch = max(0, int(min(y_start, y_end) / self.scale_factor))
-        last_ch = min(len(self.montage_list) - 1, int(max(y_start, y_end) / self.scale_factor))
+        first_ch, last_ch = self._y_to_channel_range(min(y_start, y_end), max(y_start, y_end))
         selected_channels = self.montage_list[first_ch:last_ch + 1]
 
         # Update annotation data in-place
@@ -776,15 +783,15 @@ class EEGPlotWidget(QWidget):
             return
         data["channels"] = valid_channels
 
-        # Compute Y bounds using same formula as render_annotations
-        try:
-            first_idx = self.montage_list.index(valid_channels[0])
-            last_idx = self.montage_list.index(valid_channels[-1])
-        except ValueError:
+        first_idx = self._channel_index.get(valid_channels[0])
+        last_idx = self._channel_index.get(valid_channels[-1])
+        if first_idx is None or last_idx is None:
             return
 
-        y_min = min(first_idx, last_idx) * self.scale_factor
-        y_max = max(first_idx, last_idx) * self.scale_factor
+        y_first = self._channel_y(first_idx)
+        y_last = self._channel_y(last_idx)
+        y_min = min(y_first, y_last)
+        y_max = max(y_first, y_last)
 
         annotation_roi = AnnotationROI(
             pos=[new_start, y_min],
@@ -817,17 +824,16 @@ class EEGPlotWidget(QWidget):
             if len(annotation_data["channels"]) == 0:
                 continue
 
-            # Get channel indices for Y positioning
-            try:
-                first_ch_idx = self.montage_list.index(annotation_data["channels"][0])
-                last_ch_idx = self.montage_list.index(annotation_data["channels"][-1])
-            except ValueError:
+            first_ch_idx = self._channel_index.get(annotation_data["channels"][0])
+            last_ch_idx = self._channel_index.get(annotation_data["channels"][-1])
+            if first_ch_idx is None or last_ch_idx is None:
                 # Channel not in current montage, skip
                 continue
 
-            # Ensure y_start <= y_end for positive height
-            y_min = min(first_ch_idx, last_ch_idx) * self.scale_factor
-            y_max = max(first_ch_idx, last_ch_idx) * self.scale_factor
+            y_first = self._channel_y(first_ch_idx)
+            y_last = self._channel_y(last_ch_idx)
+            y_min = min(y_first, y_last)
+            y_max = max(y_first, y_last)
 
             x_start = annotation_data["start_time"]
             x_end = annotation_data["stop_time"]
@@ -878,7 +884,7 @@ class EEGPlotWidget(QWidget):
         n_channels = len(self.montage_list)
 
         # Update Y-axis ticks with new scale factor
-        y_ticks = [(i * self.scale_factor, name) for i, name in enumerate(self.montage_list)]
+        y_ticks = [(self._channel_y(i), name) for i, name in enumerate(self.montage_list)]
         y_axis = self.plot_widget.getAxis('left')
         y_axis.setTicks([y_ticks])
 

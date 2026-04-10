@@ -34,7 +34,7 @@ class AppState(QObject):
 
     def __init__(self):
         super().__init__()
-        self._montage = 'AVERAGE'
+        self._montage_name = 'AVERAGE'
         self._filter = (None, None)
         self._montage_list = []
         self._scale = 0
@@ -48,14 +48,14 @@ class AppState(QObject):
     def montage_list(self):
         return self._montage_list
 
-    def set_montage(self, montage):
-        if montage != self._montage:
-            self._montage = montage
+    def set_montage(self, montage_name):
+        if montage_name != self._montage_name:
+            self._montage_name = montage_name
             self.montage_changed.emit()
     
     @property
-    def montage(self) -> str:
-        return self._montage
+    def montage_name(self) -> str:
+        return self._montage_name
 
     def set_filter(self, filter):
         if filter != self._filter:

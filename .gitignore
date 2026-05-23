@@ -6,3 +6,4 @@ build/
 dist/
 trash.ipynb
 eeg_annotator.log
+*.edf

@@ -42,7 +42,44 @@ on:
 # Each OS gets its own virtual machine (called a "runner").
 # =============================================================================
 jobs:
+  # =============================================================================
+  # JOB 0: TEST
+  # =============================================================================
+  # Runs the pytest suite on Ubuntu (cheap runner) before any build starts.
+  # The build job declares `needs: test` so a failing suite blocks releases.
+  # Qt widgets need a virtual display on Linux — we set QT_QPA_PLATFORM=offscreen
+  # so no xvfb daemon is required.
+  # =============================================================================
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dev dependencies
+        run: uv sync --group dev
+
+      - name: Install Qt system libs
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-xkb1 libxkbcommon-x11-0 \
+            libegl1 libgl1 libglib2.0-0
+
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest tests/ --cov=src -v
+
   build:
+    needs: test  # Don't build if tests fail
     # "strategy.matrix" runs this job multiple times with different settings.
     # Here it runs twice: once on Windows, once on macOS — in parallel.
     strategy:

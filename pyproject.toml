@@ -24,3 +24,10 @@ dev = [
     "pytest-cov==4.1.0",
     "pytest-qt==4.4.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+qt_api = "pyqt6"
+markers = [
+    "needs_edf: marks tests that require real EDF files in tests/data/ (skip if absent)",
+]

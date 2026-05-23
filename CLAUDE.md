@@ -16,19 +16,25 @@ python main.py
 # NOT: python src/main.py (will fail with import errors)
 ```
 
+### Setup
+```bash
+# Install runtime + dev deps (testing, linting, profiling)
+uv sync --group dev
+
+# Install runtime + build deps (pyinstaller) — needed to cut a release
+uv sync --group build
+```
+
 ### Testing
 ```bash
-# Install dev dependencies first
-pip install -r requirements-dev.txt
-
 # Run all tests
-pytest tests/
+uv run pytest tests/
 
 # Run with coverage report
-pytest --cov=src tests/
+uv run pytest --cov=src tests/
 
 # Memory profiling
-python -m memory_profiler src/main.py
+uv run python -m memory_profiler main.py
 # Expected: <50MB RAM usage with 100MB EDF file
 ```
 

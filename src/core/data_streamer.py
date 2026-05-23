@@ -24,7 +24,7 @@ import mne
 
 from src.core.montage_manager import montage_manager
 
-
+mne.set_log_level('WARNING')
 logger = logging.getLogger(__name__)
 
 class EEGDataStreamer:

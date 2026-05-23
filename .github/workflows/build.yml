@@ -119,7 +119,7 @@ jobs:
       # handles all optimizations (excluding matplotlib, unused Qt modules, etc.)
       # This step takes 5-15 minutes.
       - name: Build with PyInstaller
-        run: pyinstaller main.spec
+        run: uv run pyinstaller main.spec
 
       # --- Step 5: Re-sign all binaries with a consistent ad-hoc identity (macOS only) ---
       #

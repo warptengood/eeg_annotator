@@ -263,9 +263,7 @@ class EEGAnnotator(QMainWindow):
 
         try:
             # Preserve current time position before reload resets the view
-            saved_range = None
-            if hasattr(self.eeg_plot_widget, '_last_view_range'):
-                saved_range = self.eeg_plot_widget._last_view_range  # (start_time, duration)
+            saved_range = self.eeg_plot_widget.view_range  # (start_time, duration) or None
 
             # Clear data streamer cache (settings changed)
             self.eeg_plot_widget.data_streamer.clear_cache()
@@ -280,7 +278,7 @@ class EEGAnnotator(QMainWindow):
             # Restore time position after reload
             if saved_range is not None:
                 start_time, duration = saved_range
-                self.eeg_plot_widget._set_x_range_and_update(start_time, start_time + duration)
+                self.eeg_plot_widget.set_view_range(start_time, duration)
 
             # Reload annotations
             self.load_annotations()

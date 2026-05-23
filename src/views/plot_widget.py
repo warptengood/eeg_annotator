@@ -311,14 +311,13 @@ class EEGPlotWidget(QWidget):
         """
         self.plot_widget.clear()
         self.channel_curves = []
-
         # Create one PlotDataItem per channel with optimization flags
         for i in range(n_channels):
             curve = self.plot_widget.plot(
                 pen=pg.mkPen(color='k', width=1),
-                downsample=10,  # Auto-downsample when zoomed out
-                autoDownsampleFactor=5.0,  # Adjust detail by zoom level
-                clipToView=True,  # Only render visible region (CRITICAL)
+                autoDownsample=True,       # compute ds from view width each render
+                autoDownsampleFactor=5.0,  # target ~5 samples per pixel
+                clipToView=True,           # only render visible region (CRITICAL)
             )
             self.channel_curves.append(curve)
 
@@ -458,6 +457,15 @@ class EEGPlotWidget(QWidget):
                 return True
 
         return super().eventFilter(obj, event)
+
+    @property
+    def view_range(self) -> tuple | None:
+        """Return current (start_time, duration) or None if no file is loaded."""
+        return getattr(self, '_last_view_range', None)
+
+    def set_view_range(self, start: float, duration: float) -> None:
+        """Restore the visible window to (start, start+duration)."""
+        self._set_x_range_and_update(start, start + duration)
 
     def _set_x_range_and_update(self, x_min: float, x_max: float):
         """Set X range without triggering on_view_range_changed, then update plot directly."""

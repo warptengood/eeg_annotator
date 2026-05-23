@@ -133,13 +133,11 @@ User changes montage/filter → ControlToolbar emits signal
 **Lazy Loading (data_streamer.py):**
 - Uses `mne.io.read_raw_edf(preload=False)` to avoid loading entire file
 - LRU cache with max 5 windows (configurable via `MAX_CACHE_SIZE`)
-- Cache key: `(start_time, duration, montage_name, filter_tuple)`
+- Cache key: `(start_time, duration, montage_name, filter_tuple)` — `start_time` and
+  `duration` are quantized to 0.5s before keying, so drag-pan frames that differ by
+  a few ms share a cache entry.
 - Loads windows with 2-second buffer for smooth panning
 - Cache cleared when settings change (montage/filter)
-- GOTCHA: cache key uses EXACT float `start_time`/`duration`. Keyboard pan (fixed
-  increments) re-hits the cache, but mouse-drag panning produces varying floats and
-  rarely hits it — each drag frame triggers a fresh disk crop+filter. Quantize the
-  key (e.g. round to 0.5s) if you need drag-pan to reuse windows.
 - `current_montage`/`current_filter` attributes on `EEGDataStreamer` are dead state
   — montage/filter are passed per `get_window` call; don't rely on them.
 - The `_monopolar_type` is detected once per file in `open_edf()` from EEG channel
@@ -150,8 +148,8 @@ User changes montage/filter → ControlToolbar emits signal
 - `clipToView=True` only renders visible region
 - No full redraws on pan/zoom (unlike Matplotlib)
 - `_scale_constant = 0.00001` controls vertical channel spacing
-- NOTE: curves are created with `autoDownsampleFactor=5.0` but WITHOUT
-  `autoDownsample=True`, so that factor is currently ignored (fixed 10x downsample).
+- Curves use `autoDownsample=True, autoDownsampleFactor=5.0` — pyqtgraph computes the
+  downsample factor per render to target ~5 samples/pixel based on the current zoom.
 
 **Montage System:**
 - YAML files live under `resources/montages/<type>/<name>.yaml`, where `<type>` is
@@ -244,9 +242,9 @@ In `src/core/data_streamer.py`:
   + bipolar referencing + `raw.filter()` synchronously inside the pan/zoom/goto
   slots, so heavy filters block the UI. Move this to a `QThread` worker if you need
   smooth navigation (the cache + `raw_handle.copy()` would then need serialization).
-- Qt signals/slots handle most cross-component communication, BUT `main_window`
-  currently reaches into the plot widget's private API (`_last_view_range`,
-  `_set_x_range_and_update`). Prefer a public view-range API when extending.
+- Qt signals/slots handle most cross-component communication. Use the public
+  `view_range` property and `set_view_range(start, duration)` on `EEGPlotWidget`
+  to read/restore the visible window — do not access `_last_view_range` directly.
 
 **Filtering accuracy:**
 - Filters are applied per small cropped window, which introduces edge/boundary

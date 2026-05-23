@@ -21,13 +21,11 @@ from collections import OrderedDict
 import logging
 
 import mne
-import numpy as np
 
 from src.core.montage_manager import montage_manager
 
 
 logger = logging.getLogger(__name__)
-
 
 class EEGDataStreamer:
     """Memory-efficient EEG data manager using lazy loading and windowed caching.
@@ -125,6 +123,11 @@ class EEGDataStreamer:
         """
         if self.raw_handle is None:
             raise RuntimeError("No EDF file is open. Call open_edf() first.")
+
+        # Quantize to 0.5s grid so drag-pan frames that differ by a few ms share a key
+        q = 0.5
+        start_time = round(start_time / q) * q
+        duration = round(duration / q) * q
 
         # Create cache key for this exact window configuration
         cache_key = (start_time, duration, montage_name, tuple(filter_params))

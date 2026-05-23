@@ -136,25 +136,57 @@ User changes montage/filter → ControlToolbar emits signal
 - Cache key: `(start_time, duration, montage_name, filter_tuple)`
 - Loads windows with 2-second buffer for smooth panning
 - Cache cleared when settings change (montage/filter)
+- GOTCHA: cache key uses EXACT float `start_time`/`duration`. Keyboard pan (fixed
+  increments) re-hits the cache, but mouse-drag panning produces varying floats and
+  rarely hits it — each drag frame triggers a fresh disk crop+filter. Quantize the
+  key (e.g. round to 0.5s) if you need drag-pan to reuse windows.
+- `current_montage`/`current_filter` attributes on `EEGDataStreamer` are dead state
+  — montage/filter are passed per `get_window` call; don't rely on them.
+- The `_monopolar_type` is detected once per file in `open_edf()` from EEG channel
+  naming (`-A1`/`-A2` → REF, `-AV` → AV). Bipolar montages need it; see Montage System.
 
 **PyQtGraph Optimization (plot_widget.py):**
 - `downsample=10` reduces point density when zoomed out
 - `clipToView=True` only renders visible region
 - No full redraws on pan/zoom (unlike Matplotlib)
 - `_scale_constant = 0.00001` controls vertical channel spacing
+- NOTE: curves are created with `autoDownsampleFactor=5.0` but WITHOUT
+  `autoDownsample=True`, so that factor is currently ignored (fixed 10x downsample).
 
 **Montage System:**
-- YAML files in `resources/montages/` define electrode pairs
-- Format: `{channel_name}: [electrode1, electrode2]`
-- Example: `FP1-F7: ['FP1', 'F7']` for bipolar montage
-- "AVERAGE" montage uses average reference instead of pairs
-- MontageManager dynamically loads all YAMLs at startup
+- YAML files live under `resources/montages/<type>/<name>.yaml`, where `<type>` is
+  the subdirectory name (`monopolar` or `bipolar`) and becomes the `Montage.type`.
+- Display name = filename with `_`→space, uppercased (e.g. `average.yaml` → `AVERAGE`).
+- MONOPOLAR format: `{display_ch}: ["EEG <SRC>-<REF>"]` (single-element list). The
+  source channel is `pick`ed and renamed. Example: `FP1-AV: ["EEG FP1-AV"]`.
+- BIPOLAR format is NESTED by reference type — each channel maps `REF`/`AV` to an
+  `[anode, cathode]` pair, so one bipolar file works for both referential and
+  average source files:
+  ```yaml
+  FP1-F7:
+    REF: ["EEG FP1-A1", "EEG F7-A1"]
+    AV:  ["EEG FP1-AV", "EEG F7-AV"]
+  ```
+- "AVERAGE" is a MONOPOLAR montage (maps to `-AV` channels), NOT a runtime average
+  reference. Despite the v1.0 docs, no average-reference is computed.
+- NOTE: bipolar montages require ALL EEG channels in the EDF to match one naming
+  scheme — referential (`-A1`/`-A2`) or average (`-AV`). If `_monopolar_type` can't
+  be detected, `_apply_montage` falls back to the raw channels unchanged (intended
+  behavior — the plot shows the original channels under the selected montage label).
+- MontageManager dynamically loads all YAMLs at startup (filesystem scan at import).
 
 **Annotation Persistence:**
-- Saves as CSV: `{edf_filename}_{montage}.csv`
-- Format: `channels,start_time,stop_time,onset`
-- Multi-channel annotations expanded to one row per channel
-- Backward compatible with v1.0 annotations
+- Saves as CSV: `{edf_stem}_{montage_name_with_spaces→underscores}.csv` next to the EDF.
+- Format: `channels,start_time,stop_time,onset` (`onset` = the diagnosis label string).
+- Multi-channel annotations expanded to one row per channel on save; merged back on
+  load by grouping rows with identical `(start_time, stop_time, onset)`.
+- GOTCHA: `start_time`/`stop_time` are `round()`ed to INTEGER seconds when an
+  annotation is created or moved — sub-second precision is lost and rectangles snap
+  to whole seconds on reload.
+- On reload, annotations whose channels aren't in the current montage are silently
+  skipped (`render_annotations`), so switching montage can hide annotations.
+- No unsaved-changes prompt: `closeEvent` discards in-memory annotations without
+  warning if the user hasn't saved.
 
 ### PyInstaller Bundle Optimization
 
@@ -208,8 +240,18 @@ In `src/core/data_streamer.py`:
 - Keep window duration small (6-10 seconds recommended)
 
 **UI Threading:**
-- EEG data loading happens on main thread (consider threading for very large files)
-- Qt signals/slots handle all cross-component communication
+- EEG data loading happens on the main thread. `get_window` runs crop + `load_data`
+  + bipolar referencing + `raw.filter()` synchronously inside the pan/zoom/goto
+  slots, so heavy filters block the UI. Move this to a `QThread` worker if you need
+  smooth navigation (the cache + `raw_handle.copy()` would then need serialization).
+- Qt signals/slots handle most cross-component communication, BUT `main_window`
+  currently reaches into the plot widget's private API (`_last_view_range`,
+  `_set_x_range_and_update`). Prefer a public view-range API when extending.
+
+**Filtering accuracy:**
+- Filters are applied per small cropped window, which introduces edge/boundary
+  transients near window edges. The 2s buffer mitigates but does not remove them;
+  the filtered view is approximate near the visible edges.
 
 **Logging:**
 - Application logs to `eeg_annotator.log` and console
@@ -251,12 +293,15 @@ git push origin v2.0.1
 ## Key File References
 
 - Entry point: `main.py:10` (imports from `src/main.py`)
-- Application bootstrap: `src/main.py:20-32`
+- Application bootstrap: `src/main.py:36-48` (`main()`)
 - Main window orchestration: `src/views/main_window.py`
-- Lazy loading implementation: `src/core/data_streamer.py:40-100` (get_window)
-- Plot rendering: `src/views/plot_widget.py` (EEGPlotWidget class)
+- Lazy loading implementation: `src/core/data_streamer.py:99-168` (`get_window`)
+- Montage application: `src/core/data_streamer.py:170-211` (`_apply_montage`)
+- Plot rendering: `src/views/plot_widget.py` (EEGPlotWidget class, ~159+)
+- Annotation drawing/jump logic: `src/views/plot_widget.py:506-969`
 - State management: `src/models/app_state.py` (Qt signals)
-- Configuration: `src/core/config.py:8-54` (diagnosis labels)
+- Configuration: `src/core/config.py:25-77` (diagnosis labels, `pan_ammount`)
+- Montage loading/type detection: `src/core/montage_manager.py`
 - PyInstaller spec: `main.spec:16-50` (optimization settings)
 
 ## Common Pitfalls
@@ -266,3 +311,9 @@ git push origin v2.0.1
 3. **Bundle bloat**: Don't import matplotlib or unused PyQt6 modules
 4. **Cache invalidation**: Clear cache when montage/filter changes
 5. **Resource paths**: Use `path_utils.resource_path()` for resources, not hardcoded paths
+6. **Main-thread blocking**: `get_window` filters/montages synchronously in the
+   pan/zoom slots; heavy filters freeze the UI. Thread it for large/filtered files.
+7. **Unsaved annotations**: closing the window discards unsaved annotations with no
+   prompt; remind users to Ctrl+S (or add a dirty-state guard).
+8. **Annotation precision**: annotation start/stop times are rounded to whole
+   seconds; don't expect sub-second annotation boundaries.

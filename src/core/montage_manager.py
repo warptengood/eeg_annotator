@@ -86,6 +86,8 @@ class MontageManager:
             raise KeyError(f"Non-existent montage type: {montage_name}")
 
     def get_monopolar_type(self, channel_list: list[str]) -> str | None:
+        if not channel_list:
+            return None
         for pattern_type, pattern in self.channel_patterns.items():
             if all(pattern.match(name) for name in channel_list):
                 return pattern_type

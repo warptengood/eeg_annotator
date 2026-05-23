@@ -16,6 +16,7 @@
 
 
 import bisect
+import logging
 from typing import List, Dict, Optional, Tuple
 
 import pyqtgraph as pg
@@ -33,6 +34,9 @@ from PyQt6.QtGui import QKeyEvent, QCursor
 
 from src.core.config import config
 from src.core.data_streamer import EEGDataStreamer
+
+
+logger = logging.getLogger(__name__)
 
 
 class AnnotationROI(pg.ROI):
@@ -235,6 +239,9 @@ class EEGPlotWidget(QWidget):
         # Disable auto-range for manual control
         self.plot_widget.disableAutoRange()
 
+        # Y axis is a fixed channel layout — never allow vertical zoom
+        self.plot_widget.getViewBox().setMouseEnabled(x=True, y=False)
+
         # Disable PyQtGraph's built-in context menu (ViewBox + PlotItem)
         self.plot_widget.getPlotItem().setMenuEnabled(False)
 
@@ -320,9 +327,14 @@ class EEGPlotWidget(QWidget):
         y_axis = self.plot_widget.getAxis('left')
         y_axis.setTicks([y_ticks])
 
-        # Set initial view range
+        # Set initial view range and enforce zoom-out limit.
+        # _updating_range prevents setXRange/setYRange from firing on_view_range_changed,
+        # which would trigger an extra update_plot before load_edf_file calls it.
+        self._updating_range = True
         self.plot_widget.setXRange(0, self.window_duration, padding=0)
+        self.plot_widget.getViewBox().setLimits(maxXRange=self.window_duration)
         self.plot_widget.setYRange(-self.scale_factor, (n_channels - 1) * self.scale_factor + self.scale_factor, padding=0)
+        self._updating_range = False
 
     def update_plot(self, start_time: float, duration: float):
         """Update plot with new time window from data streamer.
@@ -362,6 +374,7 @@ class EEGPlotWidget(QWidget):
         start_time = max(0, x_min)
         duration = x_max - x_min
         duration = min(duration, self.signal_duration - start_time)
+        duration = min(duration, self.window_duration)
         if duration <= 0:
             return
 
@@ -375,7 +388,14 @@ class EEGPlotWidget(QWidget):
         self._last_view_range = (start_time, duration)
 
         # Lazy load new window
-        self.update_plot(start_time, duration)
+        self._safe_update_plot(start_time, duration)
+
+    def _safe_update_plot(self, start_time: float, duration: float):
+        """Update the plot from a navigation slot, logging instead of crashing."""
+        try:
+            self.update_plot(start_time, duration)
+        except Exception as e:
+            logger.error(f"Failed to update plot at {start_time:.2f}s: {e}")
 
     def eventFilter(self, obj, event):
         """Handle keyboard and mouse events for navigation and drawing."""
@@ -448,7 +468,7 @@ class EEGPlotWidget(QWidget):
         start_time = max(0, x_min)
         duration = x_max - x_min
         self._last_view_range = (start_time, duration)
-        self.update_plot(start_time, duration)
+        self._safe_update_plot(start_time, duration)
 
     def pan_left(self):
         """Pan view to the left by configured amount."""
@@ -479,6 +499,7 @@ class EEGPlotWidget(QWidget):
             duration: New window duration in seconds
         """
         self.window_duration = duration
+        self.plot_widget.getViewBox().setLimits(maxXRange=duration)
 
         view_range = self.plot_widget.viewRange()
         x_min = view_range[0][0]
@@ -531,8 +552,8 @@ class EEGPlotWidget(QWidget):
         self._is_drawing = False
         self._draw_start_pos = None
 
-        # Re-enable ViewBox mouse interaction
-        self.plot_widget.getViewBox().setMouseEnabled(x=True, y=True)
+        # Re-enable ViewBox mouse interaction (Y stays locked — fixed channel layout)
+        self.plot_widget.getViewBox().setMouseEnabled(x=True, y=False)
 
         # Restore default cursor
         self.plot_widget.unsetCursor()

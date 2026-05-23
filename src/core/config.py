@@ -59,7 +59,6 @@ class Config:
         'CHEW',
         'SHIV',
         'MUSC',
-        'EMA',
         'ELST',
         'CALB',
         'HPHS',

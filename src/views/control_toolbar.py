@@ -16,7 +16,7 @@
 
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QIcon, QIntValidator, QDoubleValidator
+from PyQt6.QtGui import QIcon, QIntValidator, QDoubleValidator, QValidator
 from PyQt6.QtWidgets import (
     QToolBar,
     QPushButton,
@@ -221,8 +221,20 @@ class ControlToolBar(QToolBar):
 
     def on_filter_changed(self):
         """Handle filter parameter changes."""
-        low = None if self.low_filter.text() == '' else float(self.low_filter.text())
-        high = None if self.high_filter.text() == '' else float(self.high_filter.text())
+        def parse_field(field):
+            """Return (ok, value); value is None for an empty field."""
+            text = field.text()
+            if text == '':
+                return True, None
+            state, _, _ = field.validator().validate(text, 0)
+            if state != QValidator.State.Acceptable:
+                return False, None
+            return True, float(text)
+
+        low_ok, low = parse_field(self.low_filter)
+        high_ok, high = parse_field(self.high_filter)
+        if not (low_ok and high_ok):
+            return
         self.state.set_filter((low, high))
 
     def on_scale_changed(self, v: str):

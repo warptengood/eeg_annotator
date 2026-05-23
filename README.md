@@ -57,7 +57,7 @@ Full usage instructions, keyboard shortcuts, and label reference: **[MANUAL.md](
 ```bash
 git clone https://github.com/warptengood/eeg_annotator.git
 cd eeg_annotator
-pip install -r requirements.txt
+uv sync
 python main.py
 ```
 

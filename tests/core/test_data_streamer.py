@@ -2,13 +2,13 @@ import pytest
 
 from src.core.data_streamer import EEGDataStreamer
 
-
 pytestmark = pytest.mark.needs_edf
 
 
 # ---------------------------------------------------------------------------
 # open_edf
 # ---------------------------------------------------------------------------
+
 
 def test_open_edf_missing_path_raises():
     ds = EEGDataStreamer()
@@ -49,6 +49,7 @@ def test_open_edf_detects_ref_type(edf_ref):
 # get_window without open file
 # ---------------------------------------------------------------------------
 
+
 def test_get_window_before_open_raises():
     ds = EEGDataStreamer()
     with pytest.raises(RuntimeError, match="No EDF file is open"):
@@ -59,8 +60,10 @@ def test_get_window_before_open_raises():
 # get_window content / quantization
 # ---------------------------------------------------------------------------
 
+
 def test_get_window_returns_raw(edf_av):
     import mne
+
     ds = EEGDataStreamer()
     ds.open_edf(edf_av)
     raw = ds.get_window(0.0, 10.0, "AVERAGE", (None, None))
@@ -103,6 +106,7 @@ def test_get_window_duration_quantization(edf_av):
 # LRU cache behaviour
 # ---------------------------------------------------------------------------
 
+
 def test_lru_cache_hit_same_object(edf_av):
     ds = EEGDataStreamer()
     ds.open_edf(edf_av)
@@ -140,7 +144,12 @@ def test_lru_evicts_oldest(edf_av):
         ds.get_window(start, step, "AVERAGE", (None, None), buffer_seconds=0.0)
         keys_loaded.append(start)
     # Oldest key should have been evicted
-    oldest_key = (round(keys_loaded[0] / 0.5) * 0.5, round(step / 0.5) * 0.5, "AVERAGE", (None, None))
+    oldest_key = (
+        round(keys_loaded[0] / 0.5) * 0.5,
+        round(step / 0.5) * 0.5,
+        "AVERAGE",
+        (None, None),
+    )
     assert oldest_key not in ds.window_cache
     ds.close()
 
@@ -148,6 +157,7 @@ def test_lru_evicts_oldest(edf_av):
 # ---------------------------------------------------------------------------
 # clear_cache
 # ---------------------------------------------------------------------------
+
 
 def test_clear_cache_empties(edf_av):
     ds = EEGDataStreamer()
@@ -181,8 +191,10 @@ def test_different_filter_produces_different_key(edf_av):
 # Montage application
 # ---------------------------------------------------------------------------
 
+
 def test_monopolar_average_montage_on_av_file(edf_av):
     from src.core.montage_manager import montage_manager
+
     ds = EEGDataStreamer()
     ds.open_edf(edf_av)
     raw = ds.get_window(0.0, 10.0, "AVERAGE", (None, None))
@@ -196,7 +208,10 @@ def test_bipolar_montage_on_av_file(edf_av):
     ds = EEGDataStreamer()
     ds.open_edf(edf_av)
     from src.core.montage_manager import montage_manager
-    bipolar_names = set(montage_manager.get_montage("BIPOLAR DOUBLE BANANA").configuration.keys())
+
+    bipolar_names = set(
+        montage_manager.get_montage("BIPOLAR DOUBLE BANANA").configuration.keys()
+    )
     raw = ds.get_window(0.0, 10.0, "BIPOLAR DOUBLE BANANA", (None, None))
     assert set(raw.ch_names) == bipolar_names
     ds.close()
@@ -206,7 +221,10 @@ def test_bipolar_montage_on_ref_file(edf_ref):
     ds = EEGDataStreamer()
     ds.open_edf(edf_ref)
     from src.core.montage_manager import montage_manager
-    bipolar_names = set(montage_manager.get_montage("BIPOLAR DOUBLE BANANA").configuration.keys())
+
+    bipolar_names = set(
+        montage_manager.get_montage("BIPOLAR DOUBLE BANANA").configuration.keys()
+    )
     raw = ds.get_window(0.0, 10.0, "BIPOLAR DOUBLE BANANA", (None, None))
     assert set(raw.ch_names) == bipolar_names
     ds.close()
@@ -216,8 +234,8 @@ def test_bipolar_montage_on_ref_file(edf_ref):
 # _apply_filter
 # ---------------------------------------------------------------------------
 
+
 def test_apply_filter_none_is_noop(edf_av):
-    import mne
     ds = EEGDataStreamer()
     ds.open_edf(edf_av)
     raw = ds.raw_handle.copy().crop(tmin=0, tmax=min(5.0, ds.metadata["duration"]))
@@ -230,6 +248,7 @@ def test_apply_filter_none_is_noop(edf_av):
 
 def test_apply_filter_bandpass_runs(edf_av):
     import mne
+
     ds = EEGDataStreamer()
     ds.open_edf(edf_av)
     raw = ds.raw_handle.copy().crop(tmin=0, tmax=min(5.0, ds.metadata["duration"]))
@@ -242,6 +261,7 @@ def test_apply_filter_bandpass_runs(edf_av):
 # ---------------------------------------------------------------------------
 # close
 # ---------------------------------------------------------------------------
+
 
 def test_close_resets_state(edf_av):
     ds = EEGDataStreamer()

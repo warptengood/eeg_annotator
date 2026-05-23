@@ -30,24 +30,31 @@ class Montage:
     name: str
     configuration: dict
 
+
 class MontageManager:
     """Manages loading and accessing EEG montage configurations from YAML files."""
 
     def __init__(self):
-        self.montages_path = resource_path('resources/montages')
+        self.montages_path = resource_path("resources/montages")
         self.montages = {}
 
         for montage_type_entry in os.scandir(self.montages_path):
             if montage_type_entry.is_dir():
                 for montage_name_entry in os.scandir(montage_type_entry.path):
-                    if montage_name_entry.name.endswith('.yaml'):
+                    if montage_name_entry.name.endswith(".yaml"):
                         montage_type = montage_type_entry.name
-                        montage_name = montage_name_entry.name.replace('.yaml', '').replace('_', ' ').upper()
-                        self.montages[montage_name] = self._load_montage(montage_type, montage_name)
+                        montage_name = (
+                            montage_name_entry.name.replace(".yaml", "")
+                            .replace("_", " ")
+                            .upper()
+                        )
+                        self.montages[montage_name] = self._load_montage(
+                            montage_type, montage_name
+                        )
 
         self.channel_patterns = {
-            'REF': re.compile(r"^EEG .+-A\d{1,2}$"),
-            'AV': re.compile(r"^EEG .+-AV$"),
+            "REF": re.compile(r"^EEG .+-A\d{1,2}$"),
+            "AV": re.compile(r"^EEG .+-AV$"),
         }
 
     def _load_montage(self, montage_type: str, montage_name: str) -> Montage:
@@ -60,10 +67,10 @@ class MontageManager:
         Returns:
             Montage object
         """
-        montage_filename = montage_name.replace(' ', '_').lower() + '.yaml'
+        montage_filename = montage_name.replace(" ", "_").lower() + ".yaml"
         montage_path = os.path.join(self.montages_path, montage_type, montage_filename)
 
-        with open(montage_path, 'r') as file:
+        with open(montage_path, "r") as file:
             configuration = yaml.safe_load(file)
 
         return Montage(montage_type, montage_name, configuration)
@@ -92,6 +99,7 @@ class MontageManager:
             if all(pattern.match(name) for name in channel_list):
                 return pattern_type
         return None
+
 
 # Global singleton instance
 montage_manager = MontageManager()

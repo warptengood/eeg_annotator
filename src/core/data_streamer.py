@@ -15,17 +15,18 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 
-from pathlib import Path
-from typing import Union, Tuple, Optional, Dict
-from collections import OrderedDict
 import logging
+from collections import OrderedDict
+from pathlib import Path
+from typing import Dict, Optional, Tuple, Union
 
 import mne
 
 from src.core.montage_manager import montage_manager
 
-mne.set_log_level('WARNING')
+mne.set_log_level("WARNING")
 logger = logging.getLogger(__name__)
+
 
 class EEGDataStreamer:
     """Memory-efficient EEG data manager using lazy loading and windowed caching.
@@ -68,21 +69,25 @@ class EEGDataStreamer:
 
         try:
             # CRITICAL: preload=False keeps file on disk, only loads metadata
-            self.raw_handle = mne.io.read_raw_edf(filename, preload=False, verbose=False)
+            self.raw_handle = mne.io.read_raw_edf(
+                filename, preload=False, verbose=False
+            )
 
             # Store metadata only (minimal memory footprint)
             self.metadata = {
-                'sfreq': self.raw_handle.info['sfreq'],
-                'duration': self.raw_handle.times[-1],
-                'n_channels': len(self.raw_handle.ch_names),
-                'ch_names': self.raw_handle.ch_names.copy(),
+                "sfreq": self.raw_handle.info["sfreq"],
+                "duration": self.raw_handle.times[-1],
+                "n_channels": len(self.raw_handle.ch_names),
+                "ch_names": self.raw_handle.ch_names.copy(),
             }
 
             # Clear cache when opening new file
             self.window_cache.clear()
 
             # Cache monopolar type (static per file, avoids regex on every window load)
-            eeg_channels = [ch for ch in self.metadata['ch_names'] if ch.startswith('EEG')]
+            eeg_channels = [
+                ch for ch in self.metadata["ch_names"] if ch.startswith("EEG")
+            ]
             self._monopolar_type = montage_manager.get_monopolar_type(eeg_channels)
 
             logger.info(
@@ -100,7 +105,7 @@ class EEGDataStreamer:
         duration: float,
         montage_name: str,
         filter_params: Tuple[Optional[float], Optional[float]],
-        buffer_seconds: float = 2.0
+        buffer_seconds: float = 2.0,
     ) -> mne.io.Raw:
         """Load and return a small time window of EEG data.
 
@@ -141,7 +146,7 @@ class EEGDataStreamer:
 
         # Calculate window boundaries with buffer
         tmin = max(0, start_time)
-        tmax = min(self.metadata['duration'], start_time + duration + buffer_seconds)
+        tmax = min(self.metadata["duration"], start_time + duration + buffer_seconds)
 
         logger.debug(f"Loading window: {tmin:.2f}s to {tmax:.2f}s")
 
@@ -181,19 +186,29 @@ class EEGDataStreamer:
             Transformed Raw object with montage applied
         """
         montage = montage_manager.get_montage(montage_name)
-        if montage.type == 'monopolar':
+        if montage.type == "monopolar":
             try:
-                electrodes = [channels[0] for channels in montage.configuration.values()]
+                electrodes = [
+                    channels[0] for channels in montage.configuration.values()
+                ]
                 raw.pick(electrodes)
-                raw.rename_channels({channels[0]: ch_name for ch_name, channels in montage.configuration.items()})
+                raw.rename_channels(
+                    {
+                        channels[0]: ch_name
+                        for ch_name, channels in montage.configuration.items()
+                    }
+                )
             except Exception as e:
                 logger.exception(f"Montage configuration error: {e}")
                 # Return unmodified if montage fails
-        elif montage.type == 'bipolar':
+        elif montage.type == "bipolar":
             try:
                 if self._monopolar_type:
                     ch_name, anode, cathode = [], [], []
-                    for conf_ch_name, conf_monopolar_types in montage.configuration.items():
+                    for (
+                        conf_ch_name,
+                        conf_monopolar_types,
+                    ) in montage.configuration.items():
                         ch_name.append(conf_ch_name)
                         anode.append(conf_monopolar_types[self._monopolar_type][0])
                         cathode.append(conf_monopolar_types[self._monopolar_type][1])
@@ -214,9 +229,7 @@ class EEGDataStreamer:
         return raw
 
     def _apply_filter(
-        self,
-        raw: mne.io.Raw,
-        filter_params: Tuple[Optional[float], Optional[float]]
+        self, raw: mne.io.Raw, filter_params: Tuple[Optional[float], Optional[float]]
     ) -> mne.io.Raw:
         """Apply frequency filter to raw data.
 
@@ -251,15 +264,15 @@ class EEGDataStreamer:
 
     def get_duration(self) -> float:
         """Get total duration of recording in seconds."""
-        return self.metadata.get('duration', 0.0)
+        return self.metadata.get("duration", 0.0)
 
     def get_sfreq(self) -> float:
         """Get sampling frequency in Hz."""
-        return self.metadata.get('sfreq', 0.0)
+        return self.metadata.get("sfreq", 0.0)
 
     def get_channel_names(self) -> list:
         """Get list of channel names."""
-        return self.metadata.get('ch_names', []).copy()
+        return self.metadata.get("ch_names", []).copy()
 
     def clear_cache(self) -> None:
         """Clear all cached windows (e.g., when montage/filter changes)."""

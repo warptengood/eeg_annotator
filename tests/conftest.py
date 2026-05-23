@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from src.models.app_state import AppState
 from src.core.data_streamer import EEGDataStreamer
 from src.core.montage_manager import montage_manager
+from src.models.app_state import AppState
 
 
 @pytest.fixture
@@ -27,6 +27,7 @@ def edf_files():
 def _detect_scheme(path: Path) -> str | None:
     """Open EDF, extract EEG channel names, return 'AV', 'REF', or None."""
     import mne
+
     raw = mne.io.read_raw_edf(str(path), preload=False, verbose=False)
     eeg_ch = [ch for ch in raw.ch_names if ch.startswith("EEG")]
     raw.close()

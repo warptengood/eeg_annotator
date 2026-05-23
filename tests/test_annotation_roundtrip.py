@@ -6,15 +6,14 @@ plot widget (bypassing the file dialog), inject annotations directly into
 plot_widget.annotation_items, then call save_annotations / load_annotations.
 QMessageBox modals are patched to no-ops so the test suite never blocks.
 """
+
 import csv
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.views.main_window import EEGAnnotator
-from src.views.plot_widget import EEGPlotWidget, AnnotationROI
-
+from src.views.plot_widget import AnnotationROI
 
 pytestmark = pytest.mark.needs_edf
 
@@ -22,6 +21,7 @@ pytestmark = pytest.mark.needs_edf
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_annotation(channels, start_time, stop_time, onset):
     """Return a mock AnnotationROI whose .data matches the expected format."""
@@ -45,9 +45,11 @@ def _inject_annotations(window, annotation_list):
 @pytest.fixture
 def annotator(tmp_edf_copy, qtbot):
     """Create a fully initialised EEGAnnotator with the AV EDF loaded."""
-    with patch("PyQt6.QtWidgets.QMessageBox.information"), \
-         patch("PyQt6.QtWidgets.QMessageBox.warning"), \
-         patch("PyQt6.QtWidgets.QMessageBox.critical"):
+    with (
+        patch("PyQt6.QtWidgets.QMessageBox.information"),
+        patch("PyQt6.QtWidgets.QMessageBox.warning"),
+        patch("PyQt6.QtWidgets.QMessageBox.critical"),
+    ):
         window = EEGAnnotator()
         qtbot.addWidget(window)
         # Load EDF without the file dialog
@@ -64,17 +66,23 @@ def annotator(tmp_edf_copy, qtbot):
 # CSV structure tests
 # ---------------------------------------------------------------------------
 
+
 def test_save_produces_one_row_per_channel(annotator, tmp_path):
     channels = ["FP1-AV", "F7-AV", "T3-AV"]
-    _inject_annotations(annotator, [
-        {"channels": channels, "start_time": 0, "stop_time": 5, "onset": "SEIZ"},
-    ])
+    _inject_annotations(
+        annotator,
+        [
+            {"channels": channels, "start_time": 0, "stop_time": 5, "onset": "SEIZ"},
+        ],
+    )
 
     with patch("PyQt6.QtWidgets.QMessageBox.information"):
         annotator.save_annotations()
 
     montage_slug = annotator.state.montage_name.replace(" ", "_")
-    csv_path = annotator.filename.parent / f"{annotator.filename.stem}_{montage_slug}.csv"
+    csv_path = (
+        annotator.filename.parent / f"{annotator.filename.stem}_{montage_slug}.csv"
+    )
     assert csv_path.exists()
 
     with open(csv_path) as f:
@@ -85,15 +93,20 @@ def test_save_produces_one_row_per_channel(annotator, tmp_path):
 
 
 def test_save_correct_columns_and_values(annotator):
-    _inject_annotations(annotator, [
-        {"channels": ["FP1-AV"], "start_time": 10, "stop_time": 20, "onset": "AR"},
-    ])
+    _inject_annotations(
+        annotator,
+        [
+            {"channels": ["FP1-AV"], "start_time": 10, "stop_time": 20, "onset": "AR"},
+        ],
+    )
 
     with patch("PyQt6.QtWidgets.QMessageBox.information"):
         annotator.save_annotations()
 
     montage_slug = annotator.state.montage_name.replace(" ", "_")
-    csv_path = annotator.filename.parent / f"{annotator.filename.stem}_{montage_slug}.csv"
+    csv_path = (
+        annotator.filename.parent / f"{annotator.filename.stem}_{montage_slug}.csv"
+    )
     with open(csv_path) as f:
         rows = list(csv.DictReader(f))
 
@@ -105,9 +118,12 @@ def test_save_correct_columns_and_values(annotator):
 
 
 def test_filename_derivation(annotator):
-    _inject_annotations(annotator, [
-        {"channels": ["FP1-AV"], "start_time": 0, "stop_time": 5, "onset": "BCKG"},
-    ])
+    _inject_annotations(
+        annotator,
+        [
+            {"channels": ["FP1-AV"], "start_time": 0, "stop_time": 5, "onset": "BCKG"},
+        ],
+    )
 
     with patch("PyQt6.QtWidgets.QMessageBox.information"):
         annotator.save_annotations()
@@ -124,6 +140,7 @@ def test_filename_derivation(annotator):
 # Round-trip: save then reload
 # ---------------------------------------------------------------------------
 
+
 def test_roundtrip_single_channel(annotator):
     original = [
         {"channels": ["FP1-AV"], "start_time": 5, "stop_time": 10, "onset": "SEIZ"},
@@ -135,8 +152,10 @@ def test_roundtrip_single_channel(annotator):
 
     # Wipe in-memory annotations and reload from CSV
     annotator.eeg_plot_widget.annotation_items = []
-    with patch("PyQt6.QtWidgets.QMessageBox.information"), \
-         patch("PyQt6.QtWidgets.QMessageBox.warning"):
+    with (
+        patch("PyQt6.QtWidgets.QMessageBox.information"),
+        patch("PyQt6.QtWidgets.QMessageBox.warning"),
+    ):
         annotator.load_annotations()
 
     loaded = annotator.eeg_plot_widget.get_annotations()
@@ -158,8 +177,10 @@ def test_roundtrip_multi_channel_regrouped(annotator):
         annotator.save_annotations()
 
     annotator.eeg_plot_widget.annotation_items = []
-    with patch("PyQt6.QtWidgets.QMessageBox.information"), \
-         patch("PyQt6.QtWidgets.QMessageBox.warning"):
+    with (
+        patch("PyQt6.QtWidgets.QMessageBox.information"),
+        patch("PyQt6.QtWidgets.QMessageBox.warning"),
+    ):
         annotator.load_annotations()
 
     loaded = annotator.eeg_plot_widget.get_annotations()
@@ -171,7 +192,12 @@ def test_roundtrip_multi_channel_regrouped(annotator):
 def test_roundtrip_multiple_annotations(annotator):
     original = [
         {"channels": ["FP1-AV"], "start_time": 0, "stop_time": 5, "onset": "SEIZ"},
-        {"channels": ["F7-AV", "T3-AV"], "start_time": 10, "stop_time": 15, "onset": "AR"},
+        {
+            "channels": ["F7-AV", "T3-AV"],
+            "start_time": 10,
+            "stop_time": 15,
+            "onset": "AR",
+        },
     ]
     _inject_annotations(annotator, original)
 
@@ -179,8 +205,10 @@ def test_roundtrip_multiple_annotations(annotator):
         annotator.save_annotations()
 
     annotator.eeg_plot_widget.annotation_items = []
-    with patch("PyQt6.QtWidgets.QMessageBox.information"), \
-         patch("PyQt6.QtWidgets.QMessageBox.warning"):
+    with (
+        patch("PyQt6.QtWidgets.QMessageBox.information"),
+        patch("PyQt6.QtWidgets.QMessageBox.warning"),
+    ):
         annotator.load_annotations()
 
     loaded = annotator.eeg_plot_widget.get_annotations()
@@ -194,10 +222,13 @@ def test_roundtrip_multiple_annotations(annotator):
 # Edge cases
 # ---------------------------------------------------------------------------
 
+
 def test_save_empty_annotations_does_not_create_file(annotator):
     annotator.eeg_plot_widget.annotation_items = []
     montage_slug = annotator.state.montage_name.replace(" ", "_")
-    csv_path = annotator.filename.parent / f"{annotator.filename.stem}_{montage_slug}.csv"
+    csv_path = (
+        annotator.filename.parent / f"{annotator.filename.stem}_{montage_slug}.csv"
+    )
     if csv_path.exists():
         csv_path.unlink()
 
@@ -209,7 +240,9 @@ def test_save_empty_annotations_does_not_create_file(annotator):
 
 def test_load_annotations_no_file_is_noop(annotator):
     montage_slug = annotator.state.montage_name.replace(" ", "_")
-    csv_path = annotator.filename.parent / f"{annotator.filename.stem}_{montage_slug}.csv"
+    csv_path = (
+        annotator.filename.parent / f"{annotator.filename.stem}_{montage_slug}.csv"
+    )
     if csv_path.exists():
         csv_path.unlink()
 
@@ -222,17 +255,23 @@ def test_load_annotations_no_file_is_noop(annotator):
 # Integer rounding — pins current behaviour (documents the known precision loss)
 # ---------------------------------------------------------------------------
 
+
 def test_start_stop_times_are_integers_in_csv(annotator):
     """Annotation times are rounded to whole seconds when persisted."""
-    _inject_annotations(annotator, [
-        {"channels": ["FP1-AV"], "start_time": 3, "stop_time": 7, "onset": "BCKG"},
-    ])
+    _inject_annotations(
+        annotator,
+        [
+            {"channels": ["FP1-AV"], "start_time": 3, "stop_time": 7, "onset": "BCKG"},
+        ],
+    )
 
     with patch("PyQt6.QtWidgets.QMessageBox.information"):
         annotator.save_annotations()
 
     montage_slug = annotator.state.montage_name.replace(" ", "_")
-    csv_path = annotator.filename.parent / f"{annotator.filename.stem}_{montage_slug}.csv"
+    csv_path = (
+        annotator.filename.parent / f"{annotator.filename.stem}_{montage_slug}.csv"
+    )
     with open(csv_path) as f:
         rows = list(csv.DictReader(f))
 

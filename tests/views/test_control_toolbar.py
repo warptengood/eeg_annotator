@@ -1,7 +1,6 @@
 import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QSignalSpy, QTest
-from PyQt6.QtWidgets import QApplication
 
 from src.models.app_state import AppState
 from src.views.control_toolbar import ControlToolBar
@@ -23,6 +22,7 @@ def toolbar(state, qtbot):
 # File operation buttons
 # ---------------------------------------------------------------------------
 
+
 def test_open_file_button_emits_signal(toolbar, qtbot):
     spy = QSignalSpy(toolbar.open_file_clicked)
     qtbot.mouseClick(toolbar.open_file, Qt.MouseButton.LeftButton)
@@ -40,6 +40,7 @@ def test_save_button_emits_signal(toolbar, qtbot, state):
 # ---------------------------------------------------------------------------
 # Undo and label buttons
 # ---------------------------------------------------------------------------
+
 
 def test_undo_button_emits_state_signal(toolbar, qtbot, state):
     toolbar.undo_btn.setEnabled(True)
@@ -62,6 +63,7 @@ def test_label_button_is_checkable(toolbar):
 # ---------------------------------------------------------------------------
 # Filter inputs
 # ---------------------------------------------------------------------------
+
 
 def test_filter_apply_updates_state(toolbar, qtbot, state):
     spy = QSignalSpy(state.filter_changed)
@@ -90,6 +92,7 @@ def test_filter_partial_low_only(toolbar, qtbot, state):
 # Scale combo
 # ---------------------------------------------------------------------------
 
+
 def test_scale_combo_updates_state(toolbar, state):
     toolbar.select_scale.setCurrentText("50 µV/mm")
     assert state.scale == 50
@@ -99,10 +102,14 @@ def test_scale_combo_updates_state(toolbar, state):
 # Montage combo
 # ---------------------------------------------------------------------------
 
+
 def test_montage_combo_updates_state(toolbar, state):
     spy = QSignalSpy(state.montage_changed)
     # Pick a different montage than the default
-    items = [toolbar.select_montage.itemText(i) for i in range(toolbar.select_montage.count())]
+    items = [
+        toolbar.select_montage.itemText(i)
+        for i in range(toolbar.select_montage.count())
+    ]
     different = next(m for m in items if m != state.montage_name)
     toolbar.select_montage.setCurrentText(different)
     assert state.montage_name == different
@@ -113,6 +120,7 @@ def test_montage_combo_updates_state(toolbar, state):
 # Jump label combo
 # ---------------------------------------------------------------------------
 
+
 def test_jump_label_combo_emits_signal(toolbar, state, qtbot):
     spy = QSignalSpy(state.jump_label_changed)
     toolbar.jump_label_combo.setCurrentText("SEIZ")
@@ -122,6 +130,7 @@ def test_jump_label_combo_emits_signal(toolbar, state, qtbot):
 # ---------------------------------------------------------------------------
 # Goto input
 # ---------------------------------------------------------------------------
+
 
 def test_goto_input_return_pressed_emits_signal(toolbar, state, qtbot):
     spy = QSignalSpy(state.goto_input_return_pressed)
@@ -141,6 +150,7 @@ def test_goto_input_empty_does_not_emit(toolbar, state, qtbot):
 # ---------------------------------------------------------------------------
 # Spinner (show_controls must be called first)
 # ---------------------------------------------------------------------------
+
 
 def test_spinner_emits_signal_after_show_controls(toolbar, state, qtbot):
     toolbar.show_controls(signal_duration=100.0, s_freq=256.0)

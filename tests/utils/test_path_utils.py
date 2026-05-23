@@ -1,8 +1,6 @@
 import sys
 from pathlib import Path
 
-import pytest
-
 from src.utils.path_utils import resource_path
 
 
@@ -11,7 +9,7 @@ def test_dev_mode_resolves_to_project_root():
     # i.e., the project root
     result = resource_path("resources/montages")
     assert result.is_dir(), f"Expected directory at {result}"
-    assert (result.parent.parent.name != "src"), "Should resolve to project root"
+    assert result.parent.parent.name != "src", "Should resolve to project root"
 
 
 def test_returns_path_object_by_default():

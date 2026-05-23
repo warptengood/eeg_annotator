@@ -15,24 +15,16 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 
-from pathlib import Path
 import logging
+from pathlib import Path
 
 import pandas as pd
 from PyQt6.QtGui import QAction, QKeySequence, QShortcut
-from PyQt6.QtWidgets import (
-    QApplication,
-    QFileDialog,
-    QHBoxLayout,
-    QMainWindow,
-    QWidget,
-    QMessageBox,
-)
+from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QMainWindow, QMessageBox, QWidget
 
+from src.models.app_state import AppState
 from src.views.control_toolbar import ControlToolBar
 from src.views.plot_widget import EEGPlotWidget
-from src.models.app_state import AppState
-
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +44,9 @@ class EEGAnnotator(QMainWindow):
         self.setWindowTitle("Ziyatron EEG Annotator v2.0")
         self.resize(1400, 800)
 
-        self.filename = None  # Set by open_file(); guards on_settings_changed / on_scale_changed
+        self.filename = (
+            None  # Set by open_file(); guards on_settings_changed / on_scale_changed
+        )
 
         # Application state
         self.state = AppState()
@@ -111,10 +105,7 @@ class EEGAnnotator(QMainWindow):
         file_filters = "EDF Files (*.edf *.EDF)"
 
         filename, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open EDF File",
-            "",
-            file_filters
+            self, "Open EDF File", "", file_filters
         )
 
         if not filename:
@@ -127,7 +118,7 @@ class EEGAnnotator(QMainWindow):
             self.eeg_plot_widget.load_edf_file(
                 filename=str(self.filename),
                 montage_name=self.state.montage_name,
-                filter_params=self.state.filter
+                filter_params=self.state.filter,
             )
 
             # Load existing annotations if available
@@ -135,8 +126,8 @@ class EEGAnnotator(QMainWindow):
 
             # Enable controls
             metadata = self.eeg_plot_widget.data_streamer.get_metadata()
-            signal_duration = metadata['duration']
-            s_freq = metadata['sfreq']
+            signal_duration = metadata["duration"]
+            s_freq = metadata["sfreq"]
 
             self.control_toolbar.label_btn.setEnabled(True)
             self.control_toolbar.save_btn.setEnabled(True)
@@ -146,11 +137,7 @@ class EEGAnnotator(QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to open file {filename}: {e}")
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to open EDF file:\n{e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to open EDF file:\n{e}")
 
     def load_annotations(self):
         """Load existing annotations from CSV file if it exists."""
@@ -159,7 +146,10 @@ class EEGAnnotator(QMainWindow):
 
         work_dir = self.filename.parent
         eeg_file_name = self.filename.stem
-        annotation_file_path = work_dir / f"{eeg_file_name}_{self.state.montage_name.replace(' ', '_')}.csv"
+        annotation_file_path = (
+            work_dir
+            / f"{eeg_file_name}_{self.state.montage_name.replace(' ', '_')}.csv"
+        )
 
         if not annotation_file_path.exists():
             logger.info("No existing annotations found")
@@ -170,44 +160,48 @@ class EEGAnnotator(QMainWindow):
             annotations = df.to_dict(orient="records")
 
             # Sort annotations
-            annotations.sort(key=lambda a: (a['start_time'], a['stop_time'], a['onset']))
+            annotations.sort(
+                key=lambda a: (a["start_time"], a["stop_time"], a["onset"])
+            )
 
             # Merge annotations with same time/label but different channels
             merged_annotations = []
             if len(annotations) > 0:
                 current_annotation = {
-                    'channels': [annotations[0]['channels']],
-                    'start_time': annotations[0]['start_time'],
-                    'stop_time': annotations[0]['stop_time'],
-                    'onset': annotations[0]['onset']
+                    "channels": [annotations[0]["channels"]],
+                    "start_time": annotations[0]["start_time"],
+                    "stop_time": annotations[0]["stop_time"],
+                    "onset": annotations[0]["onset"],
                 }
 
                 for i in range(1, len(annotations)):
                     ann = annotations[i]
-                    if (current_annotation['start_time'] == ann['start_time'] and
-                        current_annotation['stop_time'] == ann['stop_time'] and
-                        current_annotation['onset'] == ann['onset']):
-                        current_annotation['channels'].append(ann['channels'])
+                    if (
+                        current_annotation["start_time"] == ann["start_time"]
+                        and current_annotation["stop_time"] == ann["stop_time"]
+                        and current_annotation["onset"] == ann["onset"]
+                    ):
+                        current_annotation["channels"].append(ann["channels"])
                     else:
                         merged_annotations.append(current_annotation)
                         current_annotation = {
-                            'channels': [ann['channels']],
-                            'start_time': ann['start_time'],
-                            'stop_time': ann['stop_time'],
-                            'onset': ann['onset']
+                            "channels": [ann["channels"]],
+                            "start_time": ann["start_time"],
+                            "stop_time": ann["stop_time"],
+                            "onset": ann["onset"],
                         }
 
                 merged_annotations.append(current_annotation)
 
             self.eeg_plot_widget.load_annotations(merged_annotations)
-            logger.info(f"Loaded {len(merged_annotations)} annotations from {annotation_file_path}")
+            logger.info(
+                f"Loaded {len(merged_annotations)} annotations from {annotation_file_path}"
+            )
 
         except Exception as e:
             logger.error(f"Failed to load annotations: {e}")
             QMessageBox.warning(
-                self,
-                "Warning",
-                f"Failed to load existing annotations:\n{e}"
+                self, "Warning", f"Failed to load existing annotations:\n{e}"
             )
 
     def save_annotations(self):
@@ -224,37 +218,40 @@ class EEGAnnotator(QMainWindow):
 
         work_dir = self.filename.parent
         eeg_file_name = self.filename.stem
-        annotation_file_path = work_dir / f"{eeg_file_name}_{self.state.montage_name.replace(' ', '_')}.csv"
+        annotation_file_path = (
+            work_dir
+            / f"{eeg_file_name}_{self.state.montage_name.replace(' ', '_')}.csv"
+        )
 
         try:
             # Expand annotations (one row per channel)
             csv_rows = []
             for annotation in annotations:
-                for channel in annotation['channels']:
-                    csv_rows.append({
-                        'channels': channel,
-                        'start_time': annotation['start_time'],
-                        'stop_time': annotation['stop_time'],
-                        'onset': annotation['onset'],
-                    })
+                for channel in annotation["channels"]:
+                    csv_rows.append(
+                        {
+                            "channels": channel,
+                            "start_time": annotation["start_time"],
+                            "stop_time": annotation["stop_time"],
+                            "onset": annotation["onset"],
+                        }
+                    )
 
-            df = pd.DataFrame(csv_rows, columns=["channels", "start_time", "stop_time", "onset"])
+            df = pd.DataFrame(
+                csv_rows, columns=["channels", "start_time", "stop_time", "onset"]
+            )
             df.to_csv(annotation_file_path, index=False)
 
-            logger.info(f"Saved {len(annotations)} annotations to {annotation_file_path}")
+            logger.info(
+                f"Saved {len(annotations)} annotations to {annotation_file_path}"
+            )
             QMessageBox.information(
-                self,
-                "Success",
-                f"Annotations saved to:\n{annotation_file_path.name}"
+                self, "Success", f"Annotations saved to:\n{annotation_file_path.name}"
             )
 
         except Exception as e:
             logger.error(f"Failed to save annotations: {e}")
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to save annotations:\n{e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to save annotations:\n{e}")
 
     def on_settings_changed(self):
         """Reload EEG data when montage or filter changes."""
@@ -263,7 +260,9 @@ class EEGAnnotator(QMainWindow):
 
         try:
             # Preserve current time position before reload resets the view
-            saved_range = self.eeg_plot_widget.view_range  # (start_time, duration) or None
+            saved_range = (
+                self.eeg_plot_widget.view_range
+            )  # (start_time, duration) or None
 
             # Clear data streamer cache (settings changed)
             self.eeg_plot_widget.data_streamer.clear_cache()
@@ -272,7 +271,7 @@ class EEGAnnotator(QMainWindow):
             self.eeg_plot_widget.load_edf_file(
                 filename=str(self.filename),
                 montage_name=self.state.montage_name,
-                filter_params=self.state.filter
+                filter_params=self.state.filter,
             )
 
             # Restore time position after reload
@@ -283,15 +282,13 @@ class EEGAnnotator(QMainWindow):
             # Reload annotations
             self.load_annotations()
 
-            logger.info(f"Reloaded with montage={self.state.montage_name}, filter={self.state.filter}")
+            logger.info(
+                f"Reloaded with montage={self.state.montage_name}, filter={self.state.filter}"
+            )
 
         except Exception as e:
             logger.error(f"Failed to reload with new settings: {e}")
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to apply new settings:\n{e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to apply new settings:\n{e}")
 
     def on_scale_changed(self):
         """Update scale factor when scale changes."""

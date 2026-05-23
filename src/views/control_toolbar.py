@@ -16,23 +16,23 @@
 
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QIcon, QIntValidator, QDoubleValidator, QValidator
+from PyQt6.QtGui import QDoubleValidator, QIcon, QIntValidator, QValidator
 from PyQt6.QtWidgets import (
-    QToolBar,
-    QPushButton,
-    QSpinBox,
+    QComboBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
-    QComboBox,
+    QPushButton,
+    QSpinBox,
+    QToolBar,
     QVBoxLayout,
-    QHBoxLayout,
     QWidget,
 )
 
-from src.utils.path_utils import resource_path
-from src.core.montage_manager import montage_manager
 from src.core.config import config
+from src.core.montage_manager import montage_manager
 from src.models.app_state import AppState
+from src.utils.path_utils import resource_path
 
 
 class ControlToolBar(QToolBar):
@@ -52,23 +52,31 @@ class ControlToolBar(QToolBar):
 
         # File operations
         self.open_file = QPushButton("Open")
-        self.open_file.setIcon(QIcon(resource_path("resources/icons/folder.png", to_string=True)))
+        self.open_file.setIcon(
+            QIcon(resource_path("resources/icons/folder.png", to_string=True))
+        )
         self.open_file.clicked.connect(self.on_open_clicked)
 
         self.save_btn = QPushButton("Save Annotation")
-        self.save_btn.setIcon(QIcon(resource_path("resources/icons/diskette.png", to_string=True)))
+        self.save_btn.setIcon(
+            QIcon(resource_path("resources/icons/diskette.png", to_string=True))
+        )
         self.save_btn.clicked.connect(self.on_save_clicked)
         self.save_btn.setEnabled(False)
 
         # Undo button
         self.undo_btn = QPushButton("Undo")
-        self.undo_btn.setIcon(QIcon(resource_path("resources/icons/undo.png", to_string=True)))
+        self.undo_btn.setIcon(
+            QIcon(resource_path("resources/icons/undo.png", to_string=True))
+        )
         self.undo_btn.setEnabled(False)
         self.undo_btn.clicked.connect(self.on_undo_clicked)
 
         # Label/annotate button
         self.label_btn = QPushButton("Label")
-        self.label_btn.setIcon(QIcon(resource_path("resources/icons/add-selection.png", to_string=True)))
+        self.label_btn.setIcon(
+            QIcon(resource_path("resources/icons/add-selection.png", to_string=True))
+        )
         self.label_btn.setEnabled(False)
         self.label_btn.setCheckable(True)
         self.label_btn.clicked.connect(self.on_label_clicked)
@@ -98,9 +106,9 @@ class ControlToolBar(QToolBar):
         # Scale selection
         self.select_scale = QComboBox()
         for scale in [1, 2, 5, 7, 10, 15, 20, 50, 70, 100, 200, 500, 1000]:
-            self.select_scale.addItem(f'{scale} µV/mm')
+            self.select_scale.addItem(f"{scale} µV/mm")
         self.select_scale.currentTextChanged.connect(self.on_scale_changed)
-        self.state.set_scale(int(self.select_scale.currentText().replace(' µV/mm', '')))
+        self.state.set_scale(int(self.select_scale.currentText().replace(" µV/mm", "")))
 
         # Jump navigation controls
         self.jump_label_combo = QComboBox()
@@ -221,10 +229,11 @@ class ControlToolBar(QToolBar):
 
     def on_filter_changed(self):
         """Handle filter parameter changes."""
+
         def parse_field(field):
             """Return (ok, value); value is None for an empty field."""
             text = field.text()
-            if text == '':
+            if text == "":
                 return True, None
             state, _, _ = field.validator().validate(text, 0)
             if state != QValidator.State.Acceptable:
@@ -239,7 +248,7 @@ class ControlToolBar(QToolBar):
 
     def on_scale_changed(self, v: str):
         """Handle scale selection change."""
-        self.state.set_scale(int(v.replace(' µV/mm', '')))
+        self.state.set_scale(int(v.replace(" µV/mm", "")))
 
     def on_jump_label_changed(self, label: str):
         """Emit jump label change signal."""

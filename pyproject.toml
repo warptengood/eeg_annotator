@@ -19,6 +19,7 @@ build = [
 dev = [
     "black==24.2.0",
     "flake8==7.0.0",
+    "flake8-pyproject==1.2.4",
     "memory-profiler==0.61.0",
     "pytest==8.0.0",
     "pytest-cov==4.1.0",
@@ -31,3 +32,6 @@ qt_api = "pyqt6"
 markers = [
     "needs_edf: marks tests that require real EDF files in tests/data/ (skip if absent)",
 ]
+
+[tool.flake8]
+extend-ignore = ["E501", "E402", "E203"]

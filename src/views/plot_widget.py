@@ -17,24 +17,23 @@
 
 import bisect
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pyqtgraph as pg
-from PyQt6.QtCore import Qt, QRectF, QPointF
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import QCursor, QKeyEvent
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QDialog,
-    QPushButton,
     QComboBox,
-    QLabel,
+    QDialog,
     QGraphicsRectItem,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtGui import QKeyEvent, QCursor
 
 from src.core.config import config
 from src.core.data_streamer import EEGDataStreamer
-
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +46,12 @@ class AnnotationROI(pg.ROI):
             self,
             pos,
             size,
-            pen=pg.mkPen(color='b', width=3),
-            hoverPen=pg.mkPen(color='r', width=5),
-            handlePen=pg.mkPen(color='r', width=3),
-            handleHoverPen=pg.mkPen(color='g', width=5),
+            pen=pg.mkPen(color="b", width=3),
+            hoverPen=pg.mkPen(color="r", width=5),
+            handlePen=pg.mkPen(color="r", width=3),
+            handleHoverPen=pg.mkPen(color="g", width=5),
             rotatable=False,
-            **kwargs
+            **kwargs,
         )
 
         self.addScaleHandle([1, 1], [0, 0])
@@ -69,14 +68,16 @@ class AnnotationROI(pg.ROI):
 
         self._is_hovered = False
         self._is_selected = False
-        self._normal_pen = pg.mkPen(color='b', width=3)
-        self._selected_pen = pg.mkPen(color=(255, 165, 0), width=4)  # orange border when selected
+        self._normal_pen = pg.mkPen(color="b", width=3)
+        self._selected_pen = pg.mkPen(
+            color=(255, 165, 0), width=4
+        )  # orange border when selected
 
         self.data = data
         self.text_item = pg.TextItem(
             text=self.data["onset"],
-            color='b',
-            anchor=(0, 0)  # Anchor at bottom-left so text sits ON TOP of rectangle
+            color="b",
+            anchor=(0, 0),  # Anchor at bottom-left so text sits ON TOP of rectangle
         )
         self.text_item.setPos(pos[0], pos[1])
 
@@ -102,7 +103,9 @@ class AnnotationROI(pg.ROI):
         if ev.button() == pg.QtCore.Qt.MouseButton.RightButton:
             label_dialog = LabelDialog()
             try:
-                current_label_idx = config.diagnosis.index(self.text_item.textItem.toPlainText())
+                current_label_idx = config.diagnosis.index(
+                    self.text_item.textItem.toPlainText()
+                )
                 label_dialog.label_idx = current_label_idx
                 combobox = label_dialog.findChild(QComboBox)
                 if combobox:
@@ -117,7 +120,7 @@ class AnnotationROI(pg.ROI):
             elif label_dialog.result():
                 new_label = config.diagnosis[label_dialog.label_idx]
                 self.data["onset"] = new_label
-                self.text_item.setText(new_label, 'b')
+                self.text_item.setText(new_label, "b")
 
             ev.accept()
 
@@ -160,6 +163,7 @@ class LabelDialog(QDialog):
         self.delete_requested = True
         self.reject()
 
+
 class EEGPlotWidget(QWidget):
     """Memory-efficient EEG plot widget using PyQtGraph.
 
@@ -190,13 +194,17 @@ class EEGPlotWidget(QWidget):
 
         # Annotation data
         self.annotation_items: List[AnnotationROI] = []
-        self.selected_annotation_roi = None  # Currently selected annotation for highlighting
-        self._clipboard_annotation = None    # Copied annotation data dict
-        self._last_mouse_view_pos = None     # Cursor position in view coords (QPointF)
+        self.selected_annotation_roi = (
+            None  # Currently selected annotation for highlighting
+        )
+        self._clipboard_annotation = None  # Copied annotation data dict
+        self._last_mouse_view_pos = None  # Cursor position in view coords (QPointF)
 
         # Jump navigation state
-        self._sorted_annotations: list = []  # list of (start_time, AnnotationROI), sorted
-        self._jump_cursor = None              # last AnnotationROI jumped to
+        self._sorted_annotations: list = (
+            []
+        )  # list of (start_time, AnnotationROI), sorted
+        self._jump_cursor = None  # last AnnotationROI jumped to
         self._jump_label: str = "ALL"
 
         # Drawing mode state
@@ -217,8 +225,12 @@ class EEGPlotWidget(QWidget):
             self.state.spinner_value_changed.connect(self.change_window_duration)
             self.state.goto_input_return_pressed.connect(self.goto_time)
             self.state.undo_clicked.connect(self.undo_annotation)
-            self.state.montage_changed.connect(lambda: self._exit_draw_mode() if self._draw_mode else None)
-            self.state.filter_changed.connect(lambda: self._exit_draw_mode() if self._draw_mode else None)
+            self.state.montage_changed.connect(
+                lambda: self._exit_draw_mode() if self._draw_mode else None
+            )
+            self.state.filter_changed.connect(
+                lambda: self._exit_draw_mode() if self._draw_mode else None
+            )
             self.state.jump_label_changed.connect(self._on_jump_label_changed)
             self.state.jump_requested.connect(self._on_jump_requested)
 
@@ -231,10 +243,10 @@ class EEGPlotWidget(QWidget):
         self.plot_widget = pg.PlotWidget()
 
         # Configure plot appearance
-        self.plot_widget.setBackground('w')  # White background
+        self.plot_widget.setBackground("w")  # White background
         self.plot_widget.showGrid(x=True, y=False, alpha=0.3)
-        self.plot_widget.setLabel('bottom', 'Time', units='s')
-        self.plot_widget.setLabel('left', 'Channels')
+        self.plot_widget.setLabel("bottom", "Time", units="s")
+        self.plot_widget.setLabel("left", "Channels")
 
         # Disable auto-range for manual control
         self.plot_widget.disableAutoRange()
@@ -283,14 +295,14 @@ class EEGPlotWidget(QWidget):
         self.current_filter = filter_params
 
         metadata = self.data_streamer.get_metadata()
-        self.signal_duration = metadata['duration']
+        self.signal_duration = metadata["duration"]
 
         # Load initial window to get channel information
         initial_window = self.data_streamer.get_window(
             start_time=0,
             duration=self.window_duration,
             montage_name=montage_name,
-            filter_params=filter_params
+            filter_params=filter_params,
         )
 
         self.montage_list = initial_window.ch_names
@@ -314,16 +326,18 @@ class EEGPlotWidget(QWidget):
         # Create one PlotDataItem per channel with optimization flags
         for i in range(n_channels):
             curve = self.plot_widget.plot(
-                pen=pg.mkPen(color='k', width=1),
-                autoDownsample=True,       # compute ds from view width each render
+                pen=pg.mkPen(color="k", width=1),
+                autoDownsample=True,  # compute ds from view width each render
                 autoDownsampleFactor=5.0,  # target ~5 samples per pixel
-                clipToView=True,           # only render visible region (CRITICAL)
+                clipToView=True,  # only render visible region (CRITICAL)
             )
             self.channel_curves.append(curve)
 
         # Set Y-axis ticks to show channel names
-        y_ticks = [(self._channel_y(i), name) for i, name in enumerate(self.montage_list)]
-        y_axis = self.plot_widget.getAxis('left')
+        y_ticks = [
+            (self._channel_y(i), name) for i, name in enumerate(self.montage_list)
+        ]
+        y_axis = self.plot_widget.getAxis("left")
         y_axis.setTicks([y_ticks])
 
         # Set initial view range and enforce zoom-out limit.
@@ -332,7 +346,11 @@ class EEGPlotWidget(QWidget):
         self._updating_range = True
         self.plot_widget.setXRange(0, self.window_duration, padding=0)
         self.plot_widget.getViewBox().setLimits(maxXRange=self.window_duration)
-        self.plot_widget.setYRange(-self.scale_factor, (n_channels - 1) * self.scale_factor + self.scale_factor, padding=0)
+        self.plot_widget.setYRange(
+            -self.scale_factor,
+            (n_channels - 1) * self.scale_factor + self.scale_factor,
+            padding=0,
+        )
         self._updating_range = False
 
     def update_plot(self, start_time: float, duration: float):
@@ -349,7 +367,7 @@ class EEGPlotWidget(QWidget):
             start_time=start_time,
             duration=duration,
             montage_name=self.current_montage,
-            filter_params=self.current_filter
+            filter_params=self.current_filter,
         )
 
         signal = window_data.get_data()
@@ -379,9 +397,12 @@ class EEGPlotWidget(QWidget):
 
         # Only reload if view has actually changed significantly
         # (avoid redundant loads during minor adjustments)
-        if hasattr(self, '_last_view_range'):
+        if hasattr(self, "_last_view_range"):
             last_start, last_duration = self._last_view_range
-            if abs(start_time - last_start) < 0.5 and abs(duration - last_duration) < 0.5:
+            if (
+                abs(start_time - last_start) < 0.5
+                and abs(duration - last_duration) < 0.5
+            ):
                 return
 
         self._last_view_range = (start_time, duration)
@@ -406,7 +427,11 @@ class EEGPlotWidget(QWidget):
             )
 
         # Deselect annotation on any background click (ROI click will re-select if needed)
-        if obj == self.plot_widget.viewport() and event.type() == event.Type.MouseButtonPress and not self._draw_mode:
+        if (
+            obj == self.plot_widget.viewport()
+            and event.type() == event.Type.MouseButtonPress
+            and not self._draw_mode
+        ):
             self._deselect_all()
 
         # Mouse events are delivered to the viewport (QGraphicsView is a QAbstractScrollArea)
@@ -437,13 +462,22 @@ class EEGPlotWidget(QWidget):
             elif key_event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
                 self._delete_hovered_annotation()
                 return True
-            elif key_event.key() == Qt.Key.Key_Z and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            elif (
+                key_event.key() == Qt.Key.Key_Z
+                and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            ):
                 self.undo_annotation()
                 return True
-            elif key_event.key() == Qt.Key.Key_C and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            elif (
+                key_event.key() == Qt.Key.Key_C
+                and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            ):
                 self._copy_annotation()
                 return True
-            elif key_event.key() == Qt.Key.Key_V and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            elif (
+                key_event.key() == Qt.Key.Key_V
+                and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            ):
                 self._paste_annotation()
                 return True
             elif key_event.key() == Qt.Key.Key_L:
@@ -461,7 +495,7 @@ class EEGPlotWidget(QWidget):
     @property
     def view_range(self) -> tuple | None:
         """Return current (start_time, duration) or None if no file is loaded."""
-        return getattr(self, '_last_view_range', None)
+        return getattr(self, "_last_view_range", None)
 
     def set_view_range(self, start: float, duration: float) -> None:
         """Restore the visible window to (start, start+duration)."""
@@ -545,7 +579,9 @@ class EEGPlotWidget(QWidget):
 
         # Create preview rectangle (hidden until drag starts)
         self._preview_rect = QGraphicsRectItem()
-        self._preview_rect.setPen(pg.mkPen(color=(0, 0, 255, 200), width=2, style=Qt.PenStyle.DashLine))
+        self._preview_rect.setPen(
+            pg.mkPen(color=(0, 0, 255, 200), width=2, style=Qt.PenStyle.DashLine)
+        )
         self._preview_rect.setBrush(pg.mkBrush(0, 0, 255, 40))
         self._preview_rect.setZValue(1e8)
         self._preview_rect.hide()
@@ -646,7 +682,7 @@ class EEGPlotWidget(QWidget):
         first_ch, last_ch = self._y_to_channel_range(
             min(rect.top(), rect.bottom()), max(rect.top(), rect.bottom())
         )
-        selected_channels = self.montage_list[first_ch:last_ch + 1]
+        selected_channels = self.montage_list[first_ch : last_ch + 1]
 
         if len(selected_channels) == 0:
             self._exit_draw_mode()
@@ -682,19 +718,27 @@ class EEGPlotWidget(QWidget):
         y_height = (n_channels - 1) * self.scale_factor + 2 * self.scale_factor
         return QRectF(0, y_min, self.signal_duration, y_height)
 
-    def _create_editable_annotation_rect(self, annotation_roi: AnnotationROI) -> AnnotationROI:
+    def _create_editable_annotation_rect(
+        self, annotation_roi: AnnotationROI
+    ) -> AnnotationROI:
         """Create an editable annotation rectangle with event handlers."""
 
         # Restrict movement to plot boundaries
         annotation_roi.maxBounds = self._get_plot_bounds()
 
         # Connect signals for data synchronization
-        annotation_roi.sigRegionChangeFinished.connect(lambda: self._on_annotation_moved(annotation_roi))
-        annotation_roi.sigRemoveRequested.connect(lambda: self._delete_annotation(annotation_roi))
+        annotation_roi.sigRegionChangeFinished.connect(
+            lambda: self._on_annotation_moved(annotation_roi)
+        )
+        annotation_roi.sigRemoveRequested.connect(
+            lambda: self._delete_annotation(annotation_roi)
+        )
         annotation_roi.sigSelected.connect(self._select_annotation)
 
         # Connect region changed signal to update text position during drag
-        annotation_roi.sigRegionChanged.connect(lambda: self._update_annotation_text_position(annotation_roi))
+        annotation_roi.sigRegionChanged.connect(
+            lambda: self._update_annotation_text_position(annotation_roi)
+        )
 
         self.plot_widget.addItem(annotation_roi)
         self.plot_widget.addItem(annotation_roi.text_item)
@@ -731,8 +775,10 @@ class EEGPlotWidget(QWidget):
         y_start = pos[1]
         y_end = pos[1] + size[1]
 
-        first_ch, last_ch = self._y_to_channel_range(min(y_start, y_end), max(y_start, y_end))
-        selected_channels = self.montage_list[first_ch:last_ch + 1]
+        first_ch, last_ch = self._y_to_channel_range(
+            min(y_start, y_end), max(y_start, y_end)
+        )
+        selected_channels = self.montage_list[first_ch : last_ch + 1]
 
         # Update annotation data in-place
         annotation_data = annotation_roi.data
@@ -867,7 +913,9 @@ class EEGPlotWidget(QWidget):
             self.plot_widget.removeItem(annotation_roi)
 
         if annotations is None:
-            annotations = [annotation_roi.data for annotation_roi in self.annotation_items]
+            annotations = [
+                annotation_roi.data for annotation_roi in self.annotation_items
+            ]
         self.annotation_items.clear()
 
         # Re-render all annotations as editable
@@ -934,14 +982,18 @@ class EEGPlotWidget(QWidget):
         """Rebuild the sorted annotation index used for jump navigation."""
         self._sorted_annotations = sorted(
             ((roi.data["start_time"], roi) for roi in self.annotation_items),
-            key=lambda t: t[0]
+            key=lambda t: t[0],
         )
 
     def _filtered_sorted_annotations(self, label: str) -> list:
         """Return sorted annotations filtered by label ('ALL' returns all)."""
         if label == "ALL":
             return self._sorted_annotations
-        return [(t, roi) for t, roi in self._sorted_annotations if roi.data["onset"] == label]
+        return [
+            (t, roi)
+            for t, roi in self._sorted_annotations
+            if roi.data["onset"] == label
+        ]
 
     def _jump_to_annotation(self, roi: "AnnotationROI"):
         self._jump_cursor = roi
@@ -956,7 +1008,7 @@ class EEGPlotWidget(QWidget):
         view_center = sum(view_range[0]) / 2.0
         starts = [t for t, _ in candidates]
         idx = bisect.bisect_left(starts, view_center)
-        best_roi, best_dist = None, float('inf')
+        best_roi, best_dist = None, float("inf")
         for i in (idx - 1, idx):
             if 0 <= i < len(candidates):
                 dist = abs(candidates[i][0] - view_center)
@@ -1009,15 +1061,17 @@ class EEGPlotWidget(QWidget):
         n_channels = len(self.montage_list)
 
         # Update Y-axis ticks with new scale factor
-        y_ticks = [(self._channel_y(i), name) for i, name in enumerate(self.montage_list)]
-        y_axis = self.plot_widget.getAxis('left')
+        y_ticks = [
+            (self._channel_y(i), name) for i, name in enumerate(self.montage_list)
+        ]
+        y_axis = self.plot_widget.getAxis("left")
         y_axis.setTicks([y_ticks])
 
         # Update Y-axis range to fit all channels with new scale
         self.plot_widget.setYRange(
             -self.scale_factor,
             (n_channels - 1) * self.scale_factor + self.scale_factor,
-            padding=0
+            padding=0,
         )
 
     def set_scale_factor(self, scale_uv_per_mm: int):

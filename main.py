@@ -1,4 +1,5 @@
 """Wrapper entry point for Ziyatron EEG Annotator (for backward compatibility and PyInstaller)."""
+
 import sys
 from pathlib import Path
 

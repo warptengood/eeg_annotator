@@ -15,21 +15,18 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 
-import sys
 import logging
+import sys
+
 from PyQt6.QtWidgets import QApplication
 
 from src.views.main_window import EEGAnnotator
 
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('eeg_annotator.log'),
-        logging.StreamHandler()
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("eeg_annotator.log"), logging.StreamHandler()],
 )
 
 

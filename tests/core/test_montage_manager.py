@@ -2,7 +2,6 @@ import pytest
 
 from src.core.montage_manager import MontageManager, montage_manager
 
-
 EXPECTED_MONTAGES = {
     "AVERAGE",
     "CENTRAL SAGITTAL",
@@ -69,9 +68,9 @@ class TestGetMontage:
 class TestStartupScan:
     def test_all_expected_montages_loaded(self):
         loaded = set(montage_manager.montages.keys())
-        assert EXPECTED_MONTAGES.issubset(loaded), (
-            f"Missing montages: {EXPECTED_MONTAGES - loaded}"
-        )
+        assert EXPECTED_MONTAGES.issubset(
+            loaded
+        ), f"Missing montages: {EXPECTED_MONTAGES - loaded}"
 
     def test_display_name_transform(self):
         # bipolar_double_banana.yaml → BIPOLAR DOUBLE BANANA
@@ -82,16 +81,16 @@ class TestStartupScan:
 
     def test_montage_configurations_are_dicts(self):
         for name, montage in montage_manager.montages.items():
-            assert isinstance(montage.configuration, dict), (
-                f"Montage {name!r} has non-dict configuration"
-            )
+            assert isinstance(
+                montage.configuration, dict
+            ), f"Montage {name!r} has non-dict configuration"
 
     def test_montage_types_are_valid(self):
         valid_types = {"monopolar", "bipolar"}
         for name, montage in montage_manager.montages.items():
-            assert montage.type in valid_types, (
-                f"Montage {name!r} has invalid type {montage.type!r}"
-            )
+            assert (
+                montage.type in valid_types
+            ), f"Montage {name!r} has invalid type {montage.type!r}"
 
     def test_fresh_instance_loads_same_montages(self):
         fresh = MontageManager()

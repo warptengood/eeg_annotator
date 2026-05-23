@@ -16,8 +16,9 @@
 
 
 import sys
-from typing import Union
 from pathlib import Path
+from typing import Union
+
 
 def resource_path(relative_path: Path, to_string: bool = False) -> Union[Path, str]:
     """Get path to resource file, handling both development and PyInstaller bundle.

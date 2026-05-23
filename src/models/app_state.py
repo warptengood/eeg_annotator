@@ -19,12 +19,13 @@ from typing import Optional, Tuple
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
+
 class AppState(QObject):
     scale_changed = pyqtSignal()
     montage_changed = pyqtSignal()
     montage_list_changed = pyqtSignal()
     filter_changed = pyqtSignal()
-    
+
     label_clicked = pyqtSignal()
     draw_mode_changed = pyqtSignal(bool)
     spinner_value_changed = pyqtSignal(int)
@@ -36,7 +37,7 @@ class AppState(QObject):
 
     def __init__(self):
         super().__init__()
-        self._montage_name = 'AVERAGE'
+        self._montage_name = "AVERAGE"
         self._filter = (None, None)
         self._montage_list = []
         self._scale = 0
@@ -54,7 +55,7 @@ class AppState(QObject):
         if montage_name != self._montage_name:
             self._montage_name = montage_name
             self.montage_changed.emit()
-    
+
     @property
     def montage_name(self) -> str:
         return self._montage_name
@@ -63,16 +64,16 @@ class AppState(QObject):
         if filter != self._filter:
             self._filter = filter
             self.filter_changed.emit()
-    
+
     @property
     def filter(self) -> Tuple[Optional[float], Optional[float]]:
         return self._filter
-    
+
     def set_scale(self, scale):
         if scale != self._scale:
             self._scale = scale
             self.scale_changed.emit()
-    
+
     @property
     def scale(self) -> int:
         return self._scale

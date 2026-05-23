@@ -56,6 +56,10 @@ class AppState(QObject):
             self._montage_name = montage_name
             self.montage_changed.emit()
 
+    def revert_montage(self, montage_name):
+        """Set montage name without emitting montage_changed (used to undo a rejected switch)."""
+        self._montage_name = montage_name
+
     @property
     def montage_name(self) -> str:
         return self._montage_name

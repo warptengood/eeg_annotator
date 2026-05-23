@@ -50,8 +50,8 @@ class EEGAnnotator(QMainWindow):
 
         # Application state
         self.state = AppState()
-        self.state.montage_changed.connect(self.on_settings_changed)
-        self.state.filter_changed.connect(self.on_settings_changed)
+        self.state.montage_changed.connect(self.on_montage_changed)
+        self.state.filter_changed.connect(self.on_filter_changed)
         self.state.scale_changed.connect(self.on_scale_changed)
 
         # Create UI components
@@ -139,17 +139,36 @@ class EEGAnnotator(QMainWindow):
             logger.error(f"Failed to open file {filename}: {e}")
             QMessageBox.critical(self, "Error", f"Failed to open EDF file:\n{e}")
 
+    def _annotation_csv_path(self, montage_name: str) -> Path:
+        """Return the CSV path for a montage: <stem>_<montage with _ for spaces>.csv."""
+        return (
+            self.filename.parent
+            / f"{self.filename.stem}_{montage_name.replace(' ', '_')}.csv"
+        )
+
+    def _write_annotations_csv(self, annotations, path: Path) -> None:
+        """Expand annotations to one row per channel and write the CSV."""
+        csv_rows = [
+            {
+                "channels": channel,
+                "start_time": annotation["start_time"],
+                "stop_time": annotation["stop_time"],
+                "onset": annotation["onset"],
+            }
+            for annotation in annotations
+            for channel in annotation["channels"]
+        ]
+        pd.DataFrame(
+            csv_rows, columns=["channels", "start_time", "stop_time", "onset"]
+        ).to_csv(path, index=False)
+        self.eeg_plot_widget.mark_annotations_saved()
+
     def load_annotations(self):
         """Load existing annotations from CSV file if it exists."""
         if not self.filename:
             return
 
-        work_dir = self.filename.parent
-        eeg_file_name = self.filename.stem
-        annotation_file_path = (
-            work_dir
-            / f"{eeg_file_name}_{self.state.montage_name.replace(' ', '_')}.csv"
-        )
+        annotation_file_path = self._annotation_csv_path(self.state.montage_name)
 
         if not annotation_file_path.exists():
             logger.info("No existing annotations found")
@@ -216,32 +235,10 @@ class EEGAnnotator(QMainWindow):
             QMessageBox.information(self, "Info", "No annotations to save")
             return
 
-        work_dir = self.filename.parent
-        eeg_file_name = self.filename.stem
-        annotation_file_path = (
-            work_dir
-            / f"{eeg_file_name}_{self.state.montage_name.replace(' ', '_')}.csv"
-        )
+        annotation_file_path = self._annotation_csv_path(self.state.montage_name)
 
         try:
-            # Expand annotations (one row per channel)
-            csv_rows = []
-            for annotation in annotations:
-                for channel in annotation["channels"]:
-                    csv_rows.append(
-                        {
-                            "channels": channel,
-                            "start_time": annotation["start_time"],
-                            "stop_time": annotation["stop_time"],
-                            "onset": annotation["onset"],
-                        }
-                    )
-
-            df = pd.DataFrame(
-                csv_rows, columns=["channels", "start_time", "stop_time", "onset"]
-            )
-            df.to_csv(annotation_file_path, index=False)
-
+            self._write_annotations_csv(annotations, annotation_file_path)
             logger.info(
                 f"Saved {len(annotations)} annotations to {annotation_file_path}"
             )
@@ -253,33 +250,86 @@ class EEGAnnotator(QMainWindow):
             logger.error(f"Failed to save annotations: {e}")
             QMessageBox.critical(self, "Error", f"Failed to save annotations:\n{e}")
 
-    def on_settings_changed(self):
-        """Reload EEG data when montage or filter changes."""
+    def on_montage_changed(self):
+        """Handle montage switch: prompt to save if there are unsaved annotations."""
         if not self.filename:
             return
 
-        try:
-            # Preserve current time position before reload resets the view
-            saved_range = (
-                self.eeg_plot_widget.view_range
-            )  # (start_time, duration) or None
+        if self.eeg_plot_widget.is_annotations_dirty:
+            previous_montage = self.eeg_plot_widget.current_montage
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Annotations",
+                f"You have unsaved annotations for montage '{previous_montage}'.\n\n"
+                "Save them before switching montage?",
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save,
+            )
 
-            # Clear data streamer cache (settings changed)
+            if reply == QMessageBox.StandardButton.Cancel:
+                # Revert state and combobox — no reload
+                self.state.revert_montage(previous_montage)
+                self.control_toolbar.select_montage.blockSignals(True)
+                self.control_toolbar.select_montage.setCurrentText(previous_montage)
+                self.control_toolbar.select_montage.blockSignals(False)
+                return
+
+            if reply == QMessageBox.StandardButton.Save:
+                self._save_annotations_silent()
+
+        self._reload_with_current_settings()
+
+    def on_filter_changed(self):
+        """Handle filter change: reload without annotation guard (channels unchanged)."""
+        if not self.filename:
+            return
+        self._reload_with_current_settings()
+
+    def _save_annotations_silent(self):
+        """Save annotations to CSV without showing success/info dialogs.
+
+        Uses the widget's current_montage (the montage being switched away
+        from), since self.state already holds the newly selected montage.
+        """
+        annotations = self.eeg_plot_widget.get_annotations()
+        if not annotations:
+            return
+
+        annotation_file_path = self._annotation_csv_path(
+            self.eeg_plot_widget.current_montage
+        )
+
+        try:
+            self._write_annotations_csv(annotations, annotation_file_path)
+            logger.info(
+                f"Auto-saved {len(annotations)} annotations to {annotation_file_path}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to auto-save annotations: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to save annotations:\n{e}")
+
+    def _reload_with_current_settings(self):
+        """Reload EEG data and annotations for the current montage/filter."""
+        try:
+            saved_range = self.eeg_plot_widget.view_range
+
+            # Clear annotations before reloading so no stale ROIs survive
+            self.eeg_plot_widget.clear_annotations()
+
             self.eeg_plot_widget.data_streamer.clear_cache()
 
-            # Reload with new settings
             self.eeg_plot_widget.load_edf_file(
                 filename=str(self.filename),
                 montage_name=self.state.montage_name,
                 filter_params=self.state.filter,
             )
 
-            # Restore time position after reload
             if saved_range is not None:
                 start_time, duration = saved_range
                 self.eeg_plot_widget.set_view_range(start_time, duration)
 
-            # Reload annotations
             self.load_annotations()
 
             logger.info(

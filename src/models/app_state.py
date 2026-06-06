@@ -35,6 +35,11 @@ class AppState(QObject):
     jump_label_changed = pyqtSignal(str)
     jump_requested = pyqtSignal()
 
+    # Review/verification workflow
+    review_mode_changed = pyqtSignal(bool)  # expert toggled review mode on/off
+    annotation_selected = pyqtSignal(object)  # the selected AnnotationROI (or None)
+    user_changed = pyqtSignal()  # current-user identity edited
+
     def __init__(self):
         super().__init__()
         self._montage_name = "AVERAGE"

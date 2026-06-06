@@ -18,13 +18,18 @@
 import logging
 from pathlib import Path
 
-import pandas as pd
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QKeySequence, QShortcut
 from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QMainWindow, QMessageBox, QWidget
 
+from src.core.annotation_repository import JsonFileAnnotationRepository
+from src.core.user_session import UserSession
+from src.domain.annotation import Annotation
+from src.domain.review_service import ReviewService
 from src.models.app_state import AppState
 from src.views.control_toolbar import ControlToolBar
 from src.views.plot_widget import EEGPlotWidget
+from src.views.review_panel import ReviewPanel
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +41,10 @@ class EEGAnnotator(QMainWindow):
     - PyQtGraph plot widget for efficient rendering
     - EEGDataStreamer for lazy loading
     - Control toolbar for user interactions
-    - CSV-based annotation persistence
+    - JSON-based annotation persistence with review metadata
     """
 
-    def __init__(self):
+    def __init__(self, user_session: UserSession = None):
         super().__init__()
         self.setWindowTitle("Ziyatron EEG Annotator v2.0")
         self.resize(1400, 800)
@@ -48,14 +53,20 @@ class EEGAnnotator(QMainWindow):
             None  # Set by open_file(); guards on_settings_changed / on_scale_changed
         )
 
+        # Domain / persistence layer (no PyQt dependency)
+        self.user_session = user_session or UserSession()
+        self.review_service = ReviewService()
+        self.annotation_repo = JsonFileAnnotationRepository()
+
         # Application state
         self.state = AppState()
         self.state.montage_changed.connect(self.on_montage_changed)
         self.state.filter_changed.connect(self.on_filter_changed)
         self.state.scale_changed.connect(self.on_scale_changed)
+        self.state.review_mode_changed.connect(self.on_review_mode_changed)
 
         # Create UI components
-        self.control_toolbar = ControlToolBar(self.state)
+        self.control_toolbar = ControlToolBar(self.state, self.user_session)
         self.control_toolbar.open_file_clicked.connect(self.open_file)
         self.control_toolbar.save_clicked.connect(self.save_annotations)
 
@@ -63,7 +74,16 @@ class EEGAnnotator(QMainWindow):
         save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
         save_shortcut.activated.connect(self.save_annotations)
 
-        self.eeg_plot_widget = EEGPlotWidget(self.state)
+        self.eeg_plot_widget = EEGPlotWidget(
+            self.state,
+            review_service=self.review_service,
+            user_session=self.user_session,
+        )
+
+        # Expert review dock (hidden until an expert enables review mode)
+        self.review_panel = ReviewPanel(self.state, self.eeg_plot_widget.apply_review)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.review_panel)
+        self.review_panel.hide()
 
         # Add toolbar
         self.addToolBar(self.control_toolbar)
@@ -139,116 +159,81 @@ class EEGAnnotator(QMainWindow):
             logger.error(f"Failed to open file {filename}: {e}")
             QMessageBox.critical(self, "Error", f"Failed to open EDF file:\n{e}")
 
-    def _annotation_csv_path(self, montage_name: str) -> Path:
-        """Return the CSV path for a montage: <stem>_<montage with _ for spaces>.csv."""
-        return (
-            self.filename.parent
-            / f"{self.filename.stem}_{montage_name.replace(' ', '_')}.csv"
-        )
-
-    def _write_annotations_csv(self, annotations, path: Path) -> None:
-        """Expand annotations to one row per channel and write the CSV."""
-        csv_rows = [
-            {
-                "channels": channel,
-                "start_time": annotation["start_time"],
-                "stop_time": annotation["stop_time"],
-                "onset": annotation["onset"],
-            }
-            for annotation in annotations
-            for channel in annotation["channels"]
-        ]
-        pd.DataFrame(
-            csv_rows, columns=["channels", "start_time", "stop_time", "onset"]
-        ).to_csv(path, index=False)
-        self.eeg_plot_widget.mark_annotations_saved()
-
     def load_annotations(self):
-        """Load existing annotations from CSV file if it exists."""
+        """Load annotations for the current montage from the JSON document."""
         if not self.filename:
             return
 
-        annotation_file_path = self._annotation_csv_path(self.state.montage_name)
-
-        if not annotation_file_path.exists():
-            logger.info("No existing annotations found")
-            return
-
         try:
-            df = pd.read_csv(annotation_file_path)
-            annotations = df.to_dict(orient="records")
-
-            # Sort annotations
-            annotations.sort(
-                key=lambda a: (a["start_time"], a["stop_time"], a["onset"])
-            )
-
-            # Merge annotations with same time/label but different channels
-            merged_annotations = []
-            if len(annotations) > 0:
-                current_annotation = {
-                    "channels": [annotations[0]["channels"]],
-                    "start_time": annotations[0]["start_time"],
-                    "stop_time": annotations[0]["stop_time"],
-                    "onset": annotations[0]["onset"],
-                }
-
-                for i in range(1, len(annotations)):
-                    ann = annotations[i]
-                    if (
-                        current_annotation["start_time"] == ann["start_time"]
-                        and current_annotation["stop_time"] == ann["stop_time"]
-                        and current_annotation["onset"] == ann["onset"]
-                    ):
-                        current_annotation["channels"].append(ann["channels"])
-                    else:
-                        merged_annotations.append(current_annotation)
-                        current_annotation = {
-                            "channels": [ann["channels"]],
-                            "start_time": ann["start_time"],
-                            "stop_time": ann["stop_time"],
-                            "onset": ann["onset"],
-                        }
-
-                merged_annotations.append(current_annotation)
-
-            self.eeg_plot_widget.load_annotations(merged_annotations)
-            logger.info(
-                f"Loaded {len(merged_annotations)} annotations from {annotation_file_path}"
-            )
-
+            doc = self.annotation_repo.load(self.filename)
         except Exception as e:
             logger.error(f"Failed to load annotations: {e}")
             QMessageBox.warning(
                 self, "Warning", f"Failed to load existing annotations:\n{e}"
             )
+            return
+
+        montage = self.state.montage_name
+        annotations = [a.model_dump() for a in doc.for_montage(montage)]
+        self.eeg_plot_widget.load_annotations(annotations)
+        logger.info(f"Loaded {len(annotations)} annotations for montage '{montage}'")
+
+    def _save_to_disk(self, montage_name: str) -> int | None:
+        """Merge the widget's annotations for ``montage_name`` into the JSON doc.
+
+        Saving one montage never drops another montage's annotations: we load
+        the full document, replace only this montage's slice, and write it back.
+        The labeler's own draft/needs-changes annotations advance to SUBMITTED.
+
+        Returns the number of annotations saved for this montage, or ``None``
+        when there was nothing to persist (no annotations in memory and none
+        already saved for this montage), so the save is skipped entirely.
+        """
+        doc = self.annotation_repo.load(self.filename)
+        dicts = self.eeg_plot_widget.get_annotations()
+        if not dicts and not doc.for_montage(montage_name):
+            return None
+
+        models = []
+        for d in dicts:
+            d["montage"] = montage_name
+            models.append(Annotation(**d))
+
+        self.review_service.mark_submitted(models, self.user_session.name)
+
+        # Sync status/author changes back into the live ROI dicts so the
+        # on-screen colors reflect the new (submitted) state.
+        for d, m in zip(dicts, models):
+            d.update(m.model_dump())
+        self.eeg_plot_widget.refresh_annotation_styles()
+
+        doc.edf_file = self.filename.name
+        doc.replace_montage(montage_name, models)
+        self.annotation_repo.save(self.filename, doc)
+        self.eeg_plot_widget.mark_annotations_saved()
+        return len(models)
 
     def save_annotations(self):
-        """Save annotations to CSV file."""
+        """Save current-montage annotations to the JSON document (interactive)."""
         if not self.filename:
             QMessageBox.warning(self, "Warning", "No file is currently open")
             return
 
-        annotations = self.eeg_plot_widget.get_annotations()
-
-        if len(annotations) == 0:
-            QMessageBox.information(self, "Info", "No annotations to save")
-            return
-
-        annotation_file_path = self._annotation_csv_path(self.state.montage_name)
-
+        montage = self.state.montage_name
         try:
-            self._write_annotations_csv(annotations, annotation_file_path)
-            logger.info(
-                f"Saved {len(annotations)} annotations to {annotation_file_path}"
-            )
-            QMessageBox.information(
-                self, "Success", f"Annotations saved to:\n{annotation_file_path.name}"
-            )
-
+            count = self._save_to_disk(montage)
         except Exception as e:
             logger.error(f"Failed to save annotations: {e}")
             QMessageBox.critical(self, "Error", f"Failed to save annotations:\n{e}")
+            return
+
+        if count is None:
+            QMessageBox.information(self, "Info", "No annotations to save")
+            return
+
+        logger.info(f"Saved {count} annotations for montage '{montage}'")
+        path = self.annotation_repo.document_path(self.filename)
+        QMessageBox.information(self, "Success", f"Annotations saved to:\n{path.name}")
 
     def on_montage_changed(self):
         """Handle montage switch: prompt to save if there are unsaved annotations."""
@@ -288,27 +273,27 @@ class EEGAnnotator(QMainWindow):
         self._reload_with_current_settings()
 
     def _save_annotations_silent(self):
-        """Save annotations to CSV without showing success/info dialogs.
+        """Save annotations without dialogs (used when switching montage).
 
         Uses the widget's current_montage (the montage being switched away
         from), since self.state already holds the newly selected montage.
+
+        Persists even when the montage is now empty: deleting every annotation
+        and saving must clear that montage's slice on disk. We only skip when
+        there is nothing in memory AND nothing already saved for the montage.
         """
-        annotations = self.eeg_plot_widget.get_annotations()
-        if not annotations:
-            return
-
-        annotation_file_path = self._annotation_csv_path(
-            self.eeg_plot_widget.current_montage
-        )
-
+        montage = self.eeg_plot_widget.current_montage
         try:
-            self._write_annotations_csv(annotations, annotation_file_path)
-            logger.info(
-                f"Auto-saved {len(annotations)} annotations to {annotation_file_path}"
-            )
+            count = self._save_to_disk(montage)
+            if count is not None:
+                logger.info(f"Auto-saved {count} annotations")
         except Exception as e:
             logger.error(f"Failed to auto-save annotations: {e}")
             QMessageBox.critical(self, "Error", f"Failed to save annotations:\n{e}")
+
+    def on_review_mode_changed(self, enabled: bool):
+        """Show/hide the expert review dock when review mode is toggled."""
+        self.review_panel.setVisible(enabled)
 
     def _reload_with_current_settings(self):
         """Reload EEG data and annotations for the current montage/filter."""

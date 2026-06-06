@@ -34,22 +34,52 @@ from src.core.config import config
 
 logger = logging.getLogger(__name__)
 
+# Border colors per review status (RGB). Selection overrides these temporarily.
+_STATUS_COLORS = {
+    "draft": (130, 130, 130),
+    "submitted": (30, 90, 220),
+    "verified": (0, 160, 0),
+    "rejected": (210, 40, 40),
+    "needs_changes": (160, 60, 200),
+}
+_DEFAULT_STATUS_COLOR = (130, 130, 130)
+_SELECTED_COLOR = (255, 140, 0)
+
+
+def _status_color(data: Dict) -> tuple:
+    """Border color for an annotation, derived from its review status."""
+    status = (data.get("review") or {}).get("status", "draft")
+    return _STATUS_COLORS.get(status, _DEFAULT_STATUS_COLOR)
+
 
 class AnnotationROI(pg.ROI):
     sigSelected = pg.QtCore.Signal(object)  # emits self when left-clicked
+    sigEdited = pg.QtCore.Signal(object)  # emits self when its label is edited
 
-    def __init__(self, pos, size, data: Dict, **kwargs):
+    def __init__(
+        self,
+        pos,
+        size,
+        data: Dict,
+        get_scale_factor: Optional[Callable[[], float]] = None,
+        **kwargs,
+    ):
         pg.ROI.__init__(
             self,
             pos,
             size,
-            pen=pg.mkPen(color="b", width=3),
             hoverPen=pg.mkPen(color="r", width=5),
             handlePen=pg.mkPen(color="r", width=3),
             handleHoverPen=pg.mkPen(color="g", width=5),
             rotatable=False,
+            # Time (X) stays continuous; channel coverage (Y) snaps to channel
+            # borders. Translation snaps Y via our getSnapPosition override;
+            # resize snaps are re-banded by AnnotationLayer on release.
+            translateSnap=True,
+            snapSize=1.0,
             **kwargs,
         )
+        self._get_scale_factor = get_scale_factor
 
         self.addScaleHandle([1, 1], [0, 0])
         self.addScaleHandle([0, 0], [1, 1])
@@ -65,23 +95,42 @@ class AnnotationROI(pg.ROI):
 
         self._is_hovered = False
         self._is_selected = False
-        self._normal_pen = pg.mkPen(color="b", width=3)
-        self._selected_pen = pg.mkPen(
-            color=(255, 165, 0), width=4
-        )  # orange border when selected
+        self._selected_pen = pg.mkPen(color=_SELECTED_COLOR, width=4)
 
         self.data = data
         self.text_item = pg.TextItem(
             text=self.data["onset"],
-            color="b",
+            color=_status_color(data),
             anchor=(0, 0),  # Anchor at bottom-left so text sits ON TOP of rectangle
         )
         self.text_item.setPos(pos[0], pos[1])
+
+        self.refresh_status_style()
 
         self.setAcceptedMouseButtons(
             pg.QtCore.Qt.MouseButton.RightButton | pg.QtCore.Qt.MouseButton.LeftButton
         )
         self.sigClicked.connect(self._on_clicked)
+
+    def getSnapPosition(self, pos, snap=None):
+        """Snap only Y to the channel-border lattice; leave X (time) free.
+
+        Channel bands are centered on the curve lines (at integer multiples of
+        ``sf``), so the borders between them — where a box edge belongs — sit at
+        half-integer multiples: ``(k + 0.5) * sf``.
+        """
+        sf = self._get_scale_factor() if self._get_scale_factor else None
+        if not sf:
+            return pg.Point(pos)
+        snapped_y = (round(pos[1] / sf - 0.5) + 0.5) * sf
+        return pg.Point(pos[0], snapped_y)
+
+    def refresh_status_style(self):
+        """Recolor the border/label from the current review status."""
+        color = _status_color(self.data)
+        self._normal_pen = pg.mkPen(color=color, width=3)
+        self.text_item.setColor(color)
+        self.setPen(self._selected_pen if self._is_selected else self._normal_pen)
 
     def set_selected(self, selected: bool):
         """Toggle orange selection highlight."""
@@ -116,8 +165,12 @@ class AnnotationROI(pg.ROI):
                 self.sigRemoveRequested.emit(self)
             elif label_dialog.result():
                 new_label = config.diagnosis[label_dialog.label_idx]
-                self.data["onset"] = new_label
-                self.text_item.setText(new_label, "b")
+                if new_label != self.data["onset"]:
+                    self.data["onset"] = new_label
+                    self.text_item.setText(new_label)
+                    # sigEdited -> _on_annotation_edited -> refresh_status_style
+                    # owns the (re)coloring after the edit resets review status.
+                    self.sigEdited.emit(self)
 
             ev.accept()
 
@@ -180,6 +233,8 @@ class AnnotationLayer(QObject):
         get_scale_factor: Callable[[], float],
         goto_time: Callable[[float], None],
         get_channel_index: Callable[[], dict],
+        review_service=None,
+        user_session=None,
         state=None,
         parent=None,
     ):
@@ -194,6 +249,8 @@ class AnnotationLayer(QObject):
         self._get_scale_factor = get_scale_factor
         self._goto_time = goto_time
         self._get_channel_index = get_channel_index
+        self._review_service = review_service
+        self._user_session = user_session
         self._state = state
 
         # Annotation data
@@ -281,10 +338,7 @@ class AnnotationLayer(QObject):
             self._exit_draw_mode()
         self.deselect_all()
         for roi in self.annotation_items:
-            roi.sigRegionChangeFinished.disconnect()
-            roi.sigRemoveRequested.disconnect()
-            roi.sigRegionChanged.disconnect()
-            roi.sigSelected.disconnect()
+            self._disconnect_roi(roi)
             self._plot_widget.removeItem(roi.text_item)
             self._plot_widget.removeItem(roi)
         self.annotation_items.clear()
@@ -293,6 +347,74 @@ class AnnotationLayer(QObject):
         self._dirty = False
         if self._state:
             self._state.enable_undo_button.emit(False)
+
+    # ------------------------------------------------------------------
+    # Domain helpers
+    # ------------------------------------------------------------------
+
+    def _channel_band(self, first_ch: int, last_ch: int) -> tuple:
+        """Return (y_bottom, height) for a box centered on channels first..last.
+
+        Each channel band is centered on its curve line (``_channel_y``) and is
+        one ``scale_factor`` tall, so the box spans from half a band below the
+        bottom channel's center to half a band above the top channel's center.
+        A single channel is one full band tall (always visible) and the box
+        visually straddles exactly the channels it lists.
+        """
+        sf = self._get_scale_factor()
+        y_bottom = self._channel_y(last_ch) - sf / 2.0
+        height = (last_ch - first_ch + 1) * sf
+        return y_bottom, height
+
+    def _current_author(self) -> str:
+        if self._user_session is not None:
+            return self._user_session.name
+        return ""
+
+    def _build_annotation_data(
+        self, channels: list, start_time: float, stop_time: float, onset: str
+    ) -> Dict:
+        """Build a fully-stamped annotation dict for a newly authored region."""
+        if self._review_service is not None:
+            ann = self._review_service.stamp_new(
+                author=self._current_author(),
+                montage=self._state.montage_name if self._state is not None else "",
+                channels=channels,
+                start_time=start_time,
+                stop_time=stop_time,
+                onset=onset,
+            )
+            return ann.model_dump()
+        # Fallback for contexts without a service (e.g. isolated tests)
+        return {
+            "channels": list(channels),
+            "start_time": start_time,
+            "stop_time": stop_time,
+            "onset": onset,
+        }
+
+    def _touch(self, data: Dict) -> None:
+        """Mark an annotation edited via the review service (no-op without one)."""
+        if self._review_service is None:
+            return
+        from src.domain.annotation import Annotation
+
+        ann = self._review_service.touch(Annotation(**data))
+        data.update(ann.model_dump())
+
+    def apply_review_to_roi(self, roi: "AnnotationROI", verdict, note: str) -> None:
+        """Record an expert verdict on a single annotation and restyle it."""
+        if self._review_service is None or roi is None:
+            return
+        from src.domain.annotation import Annotation
+
+        reviewer = self._current_author()
+        ann = self._review_service.apply_review(
+            Annotation(**roi.data), verdict, reviewer, note
+        )
+        roi.data.update(ann.model_dump())
+        roi.refresh_status_style()
+        self._dirty = True
 
     # ------------------------------------------------------------------
     # Draw mode state machine
@@ -428,17 +550,20 @@ class AnnotationLayer(QObject):
             self._exit_draw_mode()
             return True
 
-        annotation_data = {
-            "channels": selected_channels,
-            "start_time": round(x_start),
-            "stop_time": round(x_end),
-            "onset": "BCKG",
-        }
+        # Sub-second time precision (no rounding); snap Y to whole channel bands.
+        annotation_data = self._build_annotation_data(
+            channels=selected_channels,
+            start_time=x_start,
+            stop_time=x_end,
+            onset="BCKG",
+        )
 
+        y_bottom, height = self._channel_band(first_ch, last_ch)
         annotation_roi = AnnotationROI(
-            pos=[rect.left(), rect.top()],
-            size=[rect.width(), rect.height()],
+            pos=[x_start, y_bottom],
+            size=[x_end - x_start, height],
             data=annotation_data,
+            get_scale_factor=self._get_scale_factor,
         )
 
         self._create_editable_annotation_rect(annotation_roi)
@@ -476,6 +601,7 @@ class AnnotationLayer(QObject):
             lambda: self._delete_annotation(annotation_roi)
         )
         annotation_roi.sigSelected.connect(self._select_annotation)
+        annotation_roi.sigEdited.connect(self._on_annotation_edited)
 
         # Connect region changed signal to update text position during drag
         annotation_roi.sigRegionChanged.connect(
@@ -491,6 +617,20 @@ class AnnotationLayer(QObject):
 
         return annotation_roi
 
+    def _disconnect_roi(self, roi: AnnotationROI) -> None:
+        """Disconnect all signal handlers from an ROI before removing it."""
+        roi.sigRegionChangeFinished.disconnect()
+        roi.sigRemoveRequested.disconnect()
+        roi.sigRegionChanged.disconnect()
+        roi.sigSelected.disconnect()
+        roi.sigEdited.disconnect()
+
+    def _on_annotation_edited(self, annotation_roi: AnnotationROI):
+        """Handle an in-place label edit: bump modified_at / reset review."""
+        self._touch(annotation_roi.data)
+        annotation_roi.refresh_status_style()
+        self._dirty = True
+
     def _update_annotation_text_position(self, annotation_roi: AnnotationROI):
         """Update text position when annotation is moved."""
         if annotation_roi:
@@ -498,7 +638,12 @@ class AnnotationLayer(QObject):
             annotation_roi.text_item.setPos(pos[0], pos[1])
 
     def _on_annotation_moved(self, annotation_roi: AnnotationROI):
-        """Synchronize annotation data after ROI move/resize is complete."""
+        """Synchronize annotation data after ROI move/resize is complete.
+
+        Time (X) is kept at full float precision; channel coverage (Y) is
+        re-snapped to whole channel bands so the rectangle visually matches the
+        discrete channels it is recorded against.
+        """
         pos = annotation_roi.pos()
         size = annotation_roi.size()
 
@@ -513,10 +658,18 @@ class AnnotationLayer(QObject):
         montage_list = self._get_montage_list()
         selected_channels = montage_list[first_ch : last_ch + 1]
 
+        # Re-band the ROI's Y geometry without re-triggering this handler.
+        y_bottom, height = self._channel_band(first_ch, last_ch)
+        annotation_roi.setPos((x_start, y_bottom), update=False)
+        annotation_roi.setSize((size[0], height), update=False)
+        annotation_roi.stateChanged(finish=False)
+        self._update_annotation_text_position(annotation_roi)
+
         annotation_data = annotation_roi.data
         annotation_data["channels"] = selected_channels
-        annotation_data["start_time"] = round(x_start)
-        annotation_data["stop_time"] = round(x_end)
+        annotation_data["start_time"] = x_start
+        annotation_data["stop_time"] = x_end
+        self._touch(annotation_data)
 
         # Position changed — rebuild sorted index and reset cursor
         self._dirty = True
@@ -529,10 +682,7 @@ class AnnotationLayer(QObject):
             return
 
         # Disconnect signals before removal
-        annotation_roi.sigRegionChangeFinished.disconnect()
-        annotation_roi.sigRemoveRequested.disconnect()
-        annotation_roi.sigRegionChanged.disconnect()
-        annotation_roi.sigSelected.disconnect()
+        self._disconnect_roi(annotation_roi)
 
         # Remove from visual items (both rect and text)
         self._plot_widget.removeItem(annotation_roi.text_item)
@@ -570,12 +720,16 @@ class AnnotationLayer(QObject):
             self.selected_annotation_roi.set_selected(False)
         self.selected_annotation_roi = roi
         roi.set_selected(True)
+        if self._state:
+            self._state.annotation_selected.emit(roi)
 
     def deselect_all(self):
         """Clear the current annotation selection."""
         if self.selected_annotation_roi:
             self.selected_annotation_roi.set_selected(False)
         self.selected_annotation_roi = None
+        if self._state:
+            self._state.annotation_selected.emit(None)
 
     # ------------------------------------------------------------------
     # Copy / paste
@@ -598,46 +752,45 @@ class AnnotationLayer(QObject):
         if self._clipboard_annotation is None or self._last_mouse_view_pos is None:
             return
 
-        data = dict(self._clipboard_annotation)
-        data["channels"] = list(self._clipboard_annotation["channels"])
-
-        # Reposition: cursor X = start of pasted annotation, keep same duration
-        duration = data["stop_time"] - data["start_time"]
-        cursor_x = self._last_mouse_view_pos.x()
-        new_start = round(cursor_x)
-        new_end = round(cursor_x + duration)
-
-        signal_duration = self._get_signal_duration()
-
-        # Clamp to file bounds
-        new_start = max(0, min(new_start, int(signal_duration) - 1))
-        new_end = max(new_start + 1, min(new_end, int(signal_duration)))
-        data["start_time"] = new_start
-        data["stop_time"] = new_end
-
+        clip = self._clipboard_annotation
         montage_list = self._get_montage_list()
 
         # Validate channels exist in current montage
-        valid_channels = [c for c in data["channels"] if c in montage_list]
+        valid_channels = [c for c in clip["channels"] if c in montage_list]
         if not valid_channels:
             return
-        data["channels"] = valid_channels
+
+        # Reposition: cursor X = start of pasted annotation, keep same duration
+        # (full float precision, clamped to the recording bounds).
+        duration = clip["stop_time"] - clip["start_time"]
+        signal_duration = self._get_signal_duration()
+        new_start = max(0.0, self._last_mouse_view_pos.x())
+        new_end = new_start + duration
+        if new_end > signal_duration:
+            new_end = signal_duration
+            new_start = max(0.0, new_end - duration)
 
         channel_index = self._get_channel_index()
-        first_idx = channel_index.get(valid_channels[0])
-        last_idx = channel_index.get(valid_channels[-1])
-        if first_idx is None or last_idx is None:
+        idx0 = channel_index.get(valid_channels[0])
+        idx1 = channel_index.get(valid_channels[-1])
+        if idx0 is None or idx1 is None:
             return
+        first_ch, last_ch = min(idx0, idx1), max(idx0, idx1)
 
-        y_first = self._channel_y(first_idx)
-        y_last = self._channel_y(last_idx)
-        y_min = min(y_first, y_last)
-        y_max = max(y_first, y_last)
+        # A paste is a newly authored region: fresh id + authorship, draft status.
+        data = self._build_annotation_data(
+            channels=valid_channels,
+            start_time=new_start,
+            stop_time=new_end,
+            onset=clip["onset"],
+        )
 
+        y_bottom, height = self._channel_band(first_ch, last_ch)
         annotation_roi = AnnotationROI(
-            pos=[new_start, y_min],
-            size=[new_end - new_start, y_max - y_min],
+            pos=[new_start, y_bottom],
+            size=[new_end - new_start, height],
             data=data,
+            get_scale_factor=self._get_scale_factor,
         )
         self._create_editable_annotation_rect(annotation_roi)
         self._dirty = True
@@ -659,10 +812,7 @@ class AnnotationLayer(QObject):
         annotation_roi = self.annotation_items.pop()
 
         # Disconnect signals before removal
-        annotation_roi.sigRegionChangeFinished.disconnect()
-        annotation_roi.sigRemoveRequested.disconnect()
-        annotation_roi.sigRegionChanged.disconnect()
-        annotation_roi.sigSelected.disconnect()
+        self._disconnect_roi(annotation_roi)
 
         self._plot_widget.removeItem(annotation_roi.text_item)
         self._plot_widget.removeItem(annotation_roi)
@@ -686,10 +836,7 @@ class AnnotationLayer(QObject):
         # Clear existing annotation items
         self.deselect_all()
         for annotation_roi in self.annotation_items:
-            annotation_roi.sigRegionChangeFinished.disconnect()
-            annotation_roi.sigRemoveRequested.disconnect()
-            annotation_roi.sigRegionChanged.disconnect()
-            annotation_roi.sigSelected.disconnect()
+            self._disconnect_roi(annotation_roi)
             self._plot_widget.removeItem(annotation_roi.text_item)
             self._plot_widget.removeItem(annotation_roi)
 
@@ -706,24 +853,23 @@ class AnnotationLayer(QObject):
             if len(annotation_data["channels"]) == 0:
                 continue
 
-            first_ch_idx = channel_index.get(annotation_data["channels"][0])
-            last_ch_idx = channel_index.get(annotation_data["channels"][-1])
-            if first_ch_idx is None or last_ch_idx is None:
+            idx0 = channel_index.get(annotation_data["channels"][0])
+            idx1 = channel_index.get(annotation_data["channels"][-1])
+            if idx0 is None or idx1 is None:
                 # Channel not in current montage, skip
                 continue
+            first_ch_idx, last_ch_idx = min(idx0, idx1), max(idx0, idx1)
 
-            y_first = self._channel_y(first_ch_idx)
-            y_last = self._channel_y(last_ch_idx)
-            y_min = min(y_first, y_last)
-            y_max = max(y_first, y_last)
+            y_bottom, height = self._channel_band(first_ch_idx, last_ch_idx)
 
             x_start = annotation_data["start_time"]
             x_end = annotation_data["stop_time"]
 
             annotation_roi = AnnotationROI(
-                pos=[x_start, y_min],
-                size=[x_end - x_start, y_max - y_min],
+                pos=[x_start, y_bottom],
+                size=[x_end - x_start, height],
                 data=annotation_data,
+                get_scale_factor=self._get_scale_factor,
             )
             self._create_editable_annotation_rect(annotation_roi, rebuild_index=False)
 
@@ -731,16 +877,21 @@ class AnnotationLayer(QObject):
         self._jump_cursor = None
         self._dirty = False
 
+    def refresh_styles(self):
+        """Recolor every annotation border/label from its review status."""
+        for roi in self.annotation_items:
+            roi.refresh_status_style()
+
     def mark_saved(self):
         """Clear the dirty flag after a successful save."""
         self._dirty = False
 
     def get_annotations(self) -> List[Dict]:
-        """Get all annotations for saving to CSV."""
+        """Return all annotation dicts for persistence."""
         return [annotation_roi.data for annotation_roi in self.annotation_items]
 
     def load_annotations(self, annotations: List[Dict]):
-        """Load annotations from CSV file."""
+        """Render annotations loaded from the persistence layer."""
         self.render_annotations(annotations)
 
         if len(self.annotation_items) > 0 and self._state:

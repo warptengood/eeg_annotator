@@ -20,6 +20,8 @@ import sys
 
 from PyQt6.QtWidgets import QApplication
 
+from src.core.user_session import UserSession
+from src.views.identity_dialog import prompt_identity
 from src.views.main_window import EEGAnnotator
 
 # Configure logging
@@ -39,7 +41,12 @@ def main():
     app.setOrganizationName("Ziyatron")
     app.setApplicationVersion("2.0.0")
 
-    window = EEGAnnotator()
+    # Honor-system identity: ask once on first run, then remember it.
+    user_session = UserSession()
+    if not user_session.is_configured:
+        prompt_identity(user_session, require=True)
+
+    window = EEGAnnotator(user_session=user_session)
     window.show()
 
     sys.exit(app.exec())

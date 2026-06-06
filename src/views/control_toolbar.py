@@ -33,6 +33,7 @@ from src.core.config import config
 from src.core.montage_manager import montage_manager
 from src.models.app_state import AppState
 from src.utils.path_utils import resource_path
+from src.views.identity_dialog import prompt_identity
 
 
 class ControlToolBar(QToolBar):
@@ -41,9 +42,10 @@ class ControlToolBar(QToolBar):
     open_file_clicked = pyqtSignal()
     save_clicked = pyqtSignal()
 
-    def __init__(self, state: AppState):
+    def __init__(self, state: AppState, user_session=None):
         super().__init__()
         self.state = state
+        self.user_session = user_session
 
         # Montage selection
         self.select_montage = QComboBox()
@@ -121,6 +123,18 @@ class ControlToolBar(QToolBar):
         self.jump_btn.setEnabled(False)
         self.jump_btn.clicked.connect(self.on_jump_clicked)
 
+        # Identity read-out (click to edit name/role)
+        self.user_btn = QPushButton()
+        self.user_btn.setFlat(True)
+        self.user_btn.clicked.connect(self.on_user_clicked)
+        self._refresh_user_label()
+
+        # Review mode toggle — only meaningful for experts
+        self.review_mode_btn = QPushButton("Review mode")
+        self.review_mode_btn.setCheckable(True)
+        self.review_mode_btn.toggled.connect(self.on_review_mode_toggled)
+        self._refresh_review_visibility()
+
         # Display time controls
         self.spinner_label = QLabel("Display duration: ")
         self.x_lim_spinner = QSpinBox()
@@ -166,6 +180,8 @@ class ControlToolBar(QToolBar):
         action_layout.addWidget(self.select_scale)
         action_layout.addWidget(self.jump_label_combo)
         action_layout.addWidget(self.jump_btn)
+        action_layout.addWidget(self.review_mode_btn)
+        action_layout.addWidget(self.user_btn)
         action_layout.setContentsMargins(0, 0, 0, 0)
 
         tools_widget = QWidget()
@@ -257,3 +273,34 @@ class ControlToolBar(QToolBar):
     def on_jump_clicked(self):
         """Emit jump requested signal."""
         self.state.jump_requested.emit()
+
+    # ------------------------------------------------------------------
+    # Identity / review mode
+    # ------------------------------------------------------------------
+
+    def _refresh_user_label(self):
+        """Update the toolbar read-out from the current user session."""
+        if self.user_session is not None:
+            self.user_btn.setText(f"👤 {self.user_session.label()}")
+        else:
+            self.user_btn.setText("👤 unknown")
+
+    def _refresh_review_visibility(self):
+        """Review mode is only available to experts."""
+        is_expert = self.user_session is not None and self.user_session.is_expert
+        self.review_mode_btn.setVisible(is_expert)
+        if not is_expert and self.review_mode_btn.isChecked():
+            self.review_mode_btn.setChecked(False)
+
+    def on_user_clicked(self):
+        """Open the identity dialog to edit name/role."""
+        if self.user_session is None:
+            return
+        if prompt_identity(self.user_session, parent=self):
+            self._refresh_user_label()
+            self._refresh_review_visibility()
+            self.state.user_changed.emit()
+
+    def on_review_mode_toggled(self, checked: bool):
+        """Emit review-mode change so the main window shows/hides the panel."""
+        self.state.review_mode_changed.emit(checked)

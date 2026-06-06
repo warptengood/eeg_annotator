@@ -16,6 +16,7 @@
 
 
 import logging
+import math
 from typing import Dict, List, Optional, Tuple
 
 import pyqtgraph as pg
@@ -43,10 +44,12 @@ class EEGPlotWidget(QWidget):
     Integrates with EEGDataStreamer for lazy loading of data windows.
     """
 
-    def __init__(self, state=None):
+    def __init__(self, state=None, review_service=None, user_session=None):
         super().__init__()
 
         self.state = state
+        self._review_service = review_service
+        self._user_session = user_session
         self.data_streamer = EEGDataStreamer()
 
         # Plot configuration
@@ -74,6 +77,8 @@ class EEGPlotWidget(QWidget):
             get_scale_factor=lambda: self.scale_factor,
             goto_time=self.goto_time,
             get_channel_index=lambda: self._channel_index,
+            review_service=self._review_service,
+            user_session=self._user_session,
             state=self.state,
             parent=self,
         )
@@ -135,14 +140,29 @@ class EEGPlotWidget(QWidget):
         self._channel_index: dict[str, int] = {}
 
     def _channel_y(self, channel_index: int) -> float:
-        """Convert channel index to inverted Y position (first channel at top)."""
+        """Y position of a channel's center line (first channel at top)."""
         return (len(self.montage_list) - 1 - channel_index) * self.scale_factor
 
     def _y_to_channel_range(self, y_low: float, y_high: float) -> tuple[int, int]:
-        """Convert Y coordinate range to (first_ch, last_ch) indices (inverted)."""
+        """Return (first_ch, last_ch) covered by the Y span [y_low, y_high].
+
+        A channel is covered iff its center line (``_channel_y``) lies within
+        the span. Center line of row j (counting from the bottom) is at
+        ``j * scale_factor``; channel index = n - 1 - j. This is robust at band
+        borders (which sit at half-integer multiples of scale_factor) and never
+        drifts when an already-banded annotation is re-measured.
+        """
         n = len(self.montage_list)
-        first_ch = max(0, n - 1 - int(y_high / self.scale_factor))
-        last_ch = min(n - 1, n - 1 - int(y_low / self.scale_factor))
+        sf = self.scale_factor
+        eps = sf * 1e-6  # absorb float dust so border edges land predictably
+        j_min = max(0, math.ceil((y_low - eps) / sf))
+        j_max = min(n - 1, math.floor((y_high + eps) / sf))
+        if j_min > j_max:
+            # Span too thin to contain any center line: snap to the nearest one.
+            j = min(n - 1, max(0, round(((y_low + y_high) / 2) / sf)))
+            j_min = j_max = j
+        first_ch = n - 1 - j_max
+        last_ch = n - 1 - j_min
         return first_ch, last_ch
 
     def load_edf_file(self, filename: str, montage_name: str, filter_params: Tuple):
@@ -439,12 +459,20 @@ class EEGPlotWidget(QWidget):
         self._annotation_layer.render_annotations(annotations)
 
     def get_annotations(self) -> List[Dict]:
-        """Get all annotations for saving to CSV."""
+        """Return all annotation dicts for persistence."""
         return self._annotation_layer.get_annotations()
 
     def load_annotations(self, annotations: List[Dict]):
-        """Load annotations from CSV file."""
+        """Render annotations loaded from the persistence layer."""
         self._annotation_layer.load_annotations(annotations)
+
+    def apply_review(self, roi, verdict, note: str):
+        """Record an expert verdict on a single annotation ROI."""
+        self._annotation_layer.apply_review_to_roi(roi, verdict, note)
+
+    def refresh_annotation_styles(self):
+        """Recolor all annotation borders from their current review status."""
+        self._annotation_layer.refresh_styles()
 
     def undo_annotation(self):
         """Remove the last annotation."""

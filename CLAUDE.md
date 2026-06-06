@@ -80,16 +80,24 @@ git push origin v2.0.1
 
 ```
 src/
-├── main.py                      # Application bootstrap
+├── main.py                      # Application bootstrap (+ first-run identity prompt)
 ├── models/
 │   └── app_state.py            # Centralized state management with Qt signals
+├── domain/                      # PURE PYTHON — no PyQt imports (backend-reusable)
+│   ├── annotation.py           # Pydantic models: Annotation, Review, AnnotationDocument
+│   └── review_service.py       # Review-lifecycle transition rules
 ├── views/
 │   ├── main_window.py          # Main window orchestration
 │   ├── plot_widget.py          # PyQtGraph-based EEG visualization
-│   └── control_toolbar.py      # User controls (file, montage, filter, scale)
+│   ├── annotation_layer.py     # Annotation ROIs, draw/edit, Y-snap, status colors
+│   ├── review_panel.py         # Expert review dock (verify/reject/needs-changes)
+│   ├── identity_dialog.py      # Name+role prompt (first-run + toolbar edit)
+│   └── control_toolbar.py      # User controls (file, montage, filter, scale, review)
 ├── core/
 │   ├── data_streamer.py        # Lazy-loading EEG data with LRU cache
 │   ├── montage_manager.py      # YAML-based montage configuration
+│   ├── annotation_repository.py # Persistence behind AnnotationRepository protocol (JSON)
+│   ├── user_session.py         # Honor-system identity via QSettings
 │   └── config.py               # App configuration (diagnosis labels)
 └── utils/
     └── path_utils.py           # Resource path resolution (dev vs PyInstaller)
@@ -133,6 +141,9 @@ User changes montage/filter → ControlToolbar emits signal
 - `undo_clicked` → removes last annotation
 - `goto_input_return_pressed` → jumps to specific time
 - `spinner_value_changed` → changes display window duration
+- `review_mode_changed(bool)` → shows/hides the expert `ReviewPanel` dock
+- `annotation_selected(object)` → feeds the selected ROI (or None) to the review panel
+- `user_changed` → identity (name/role) was edited via the toolbar
 
 ### Critical Implementation Details
 
@@ -179,18 +190,53 @@ User changes montage/filter → ControlToolbar emits signal
   behavior — the plot shows the original channels under the selected montage label).
 - MontageManager dynamically loads all YAMLs at startup (filesystem scan at import).
 
-**Annotation Persistence:**
-- Saves as CSV: `{edf_stem}_{montage_name_with_spaces→underscores}.csv` next to the EDF.
-- Format: `channels,start_time,stop_time,onset` (`onset` = the diagnosis label string).
-- Multi-channel annotations expanded to one row per channel on save; merged back on
-  load by grouping rows with identical `(start_time, stop_time, onset)`.
-- GOTCHA: `start_time`/`stop_time` are `round()`ed to INTEGER seconds when an
-  annotation is created or moved — sub-second precision is lost and rectangles snap
-  to whole seconds on reload.
+**Annotation Persistence (JSON + review metadata):**
+- ONE JSON document per EDF: `{edf_stem}.ziyatron.json` next to the EDF (constant
+  `ANNOTATION_FILE_SUFFIX`). Replaces the old per-montage CSV format entirely — there
+  is NO CSV code in the app anymore (legacy CSVs are migrated externally/manually).
+- Goes through `AnnotationRepository` (a `Protocol`); `JsonFileAnnotationRepository` is
+  the only impl today. A future backend (FastAPI/engine) drops in behind the same
+  interface — the Qt layer never touches files directly. Models live in `src/domain/`
+  and the repository import NO PyQt (enforced by `tests/test_domain_no_pyqt.py`).
+- Schema is Pydantic v2 (`AnnotationDocument` → flat `annotations` list). Each
+  `Annotation` carries `id` (uuid), `montage`, `channels` (list), `start_time`,
+  `stop_time` (FLOATS — sub-second), `onset`, `author`, `created_at`, `modified_at`,
+  and a nested `review` (`status`, `reviewer`, `reviewed_at`, `note`).
+  `ReviewStatus`: draft → submitted → verified | rejected | needs_changes.
+- One annotation = one object (NO per-channel row expansion). Loading filters the doc
+  to the current montage (`doc.for_montage`); saving is MERGE-on-save
+  (`doc.replace_montage`) — writing one montage never drops another montage's rows,
+  and an intern's save can't clobber an expert's verdict on a different montage.
+- Validation: `model_validate_json` raises `ValidationError` on malformed/hand-edited
+  files (surfaced as a warning in `main_window.load_annotations`); unknown keys are
+  ignored for forward-compat; missing `id`/`review`/`author` get defaults.
+- Review lifecycle rules live ONLY in `domain/review_service.py` (`stamp_new`,
+  `mark_submitted`, `apply_review`, `touch`). On save, the labeler's draft/needs-changes
+  annotations advance to `submitted`. Editing an already-reviewed annotation
+  (`touch`) resets it to `draft` (keeps the reviewer note) so it is re-reviewed.
 - On reload, annotations whose channels aren't in the current montage are silently
   skipped (`render_annotations`), so switching montage can hide annotations.
-- No unsaved-changes prompt: `closeEvent` discards in-memory annotations without
-  warning if the user hasn't saved.
+- No unsaved-changes prompt on close: `closeEvent` discards in-memory annotations
+  without warning (the montage-switch save prompt still exists).
+
+**Sub-second time + discrete channels (annotation geometry):**
+- Time (X) is full float precision — NO rounding on create/move/paste (downstream
+  ML/analysis rounds as needed). Channel coverage (Y) is DISCRETE: an annotation
+  covers whole channels only.
+- `AnnotationROI.getSnapPosition` snaps only Y to the channel-border lattice
+  (multiples of `scale_factor`), leaving X continuous; `_on_annotation_moved`
+  re-bands the ROI's Y on release so resize snaps too. Render/create/paste use
+  `_channel_band(first, last)` → band geometry (a single channel is one full band
+  tall and visible; previously single-channel boxes were zero-height/invisible).
+
+**Identity & review UI (honor-system, no enforced login):**
+- `UserSession` (QSettings) stores name + role (labeler/expert). First run prompts via
+  `identity_dialog.prompt_identity`; toolbar read-out re-opens it to edit.
+- `role == expert` reveals the toolbar "Review mode" toggle, which shows the
+  `ReviewPanel` dock. Selecting an annotation (`AppState.annotation_selected`) populates
+  it; Verify/Reject/Needs-changes route through `plot_widget.apply_review` →
+  `AnnotationLayer.apply_review_to_roi` → `ReviewService`. Border colors reflect status
+  (grey=draft, blue=submitted, green=verified, red=rejected, purple=needs_changes).
 
 ### PyInstaller Bundle Optimization
 
@@ -268,7 +314,8 @@ In `src/core/data_streamer.py`:
 - Pan/zoom should be smooth (<50ms response)
 - Test all montages load correctly
 - Verify filter changes update display
-- Annotation save/load with correct CSV format
+- Annotation save/load round-trips through `{edf_stem}.ziyatron.json` (floats preserved)
+- Expert review: verify/reject/needs-changes updates status color + JSON `review` block
 
 **Memory Leak Detection:**
 Run with memory profiler and check:
@@ -298,11 +345,14 @@ git push origin v2.0.1
 
 - Entry point: `main.py:10` (imports from `src/main.py`)
 - Application bootstrap: `src/main.py:36-48` (`main()`)
-- Main window orchestration: `src/views/main_window.py`
+- Main window orchestration + save/merge: `src/views/main_window.py` (`_save_to_disk`)
 - Lazy loading implementation: `src/core/data_streamer.py:99-168` (`get_window`)
 - Montage application: `src/core/data_streamer.py:170-211` (`_apply_montage`)
-- Plot rendering: `src/views/plot_widget.py` (EEGPlotWidget class, ~159+)
-- Annotation drawing/jump logic: `src/views/plot_widget.py:506-969`
+- Plot rendering: `src/views/plot_widget.py` (EEGPlotWidget class)
+- Annotation ROIs/draw/snap/jump logic: `src/views/annotation_layer.py`
+- Annotation models + review rules: `src/domain/annotation.py`, `src/domain/review_service.py`
+- Persistence (JSON, swappable backend): `src/core/annotation_repository.py`
+- Identity + expert review UI: `src/core/user_session.py`, `src/views/identity_dialog.py`, `src/views/review_panel.py`
 - State management: `src/models/app_state.py` (Qt signals)
 - Configuration: `src/core/config.py:25-77` (diagnosis labels, `pan_ammount`)
 - Montage loading/type detection: `src/core/montage_manager.py`
@@ -319,5 +369,10 @@ git push origin v2.0.1
    pan/zoom slots; heavy filters freeze the UI. Thread it for large/filtered files.
 7. **Unsaved annotations**: closing the window discards unsaved annotations with no
    prompt; remind users to Ctrl+S (or add a dirty-state guard).
-8. **Annotation precision**: annotation start/stop times are rounded to whole
-   seconds; don't expect sub-second annotation boundaries.
+8. **Annotation precision**: start/stop times are full-precision FLOATS (sub-second);
+   channel coverage is discrete (Y snaps to channel borders). Don't reintroduce
+   `round()` on times.
+9. **No CSV**: persistence is JSON via `AnnotationRepository`. Don't read/write
+   annotation files directly from the UI, and don't add `pandas` back.
+10. **Domain purity**: `src/domain/` and `annotation_repository.py` must not import
+    PyQt (the backend seam) — `tests/test_domain_no_pyqt.py` enforces it.

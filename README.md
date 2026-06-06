@@ -10,7 +10,7 @@
 
 ![Multiple annotations on EEG recording](docs/screenshots/08_multiple_annotations.png)
 
-Load any EDF file, navigate the trace, and mark regions with 49 clinical labels — all without a hospital workstation. Streams data on demand so 100 MB+ files open in seconds and use under 50 MB of RAM.
+Load any EDF file, navigate the trace, and mark regions with 49 clinical labels — all without a hospital workstation. Streams data on demand so 100 MB+ files open in seconds and use under 50 MB of RAM. Built for teams: **labelers** mark regions and **experts** verify them, with full provenance on every annotation.
 
 ---
 
@@ -34,15 +34,24 @@ Load any EDF file, navigate the trace, and mark regions with 49 clinical labels 
 **Annotation**
 - Draw rectangles across any time range and channel selection
 - 49 pre-defined clinical labels (SEIZ, ARTF, AR, MUSC, EYBL, …)
+- Sub-second time precision; vertical edges snap to whole channels
 - Move, resize, copy/paste, and delete annotations
 - Ctrl+Z undo
 
 ![Drawing an annotation](docs/screenshots/03_drawing_mode.gif)
 
+**Review & verification**
+- Labeler / expert roles (honor-system identity, no login)
+- Experts verify, reject, or request changes on each label
+- Border colors show review status at a glance (draft, submitted, verified, rejected, needs-changes)
+- Every annotation records its author, reviewer, and timestamps
+
+![Expert review panel](docs/screenshots/12_review_panel.png)
+
 **File I/O**
-- Annotations auto-save as CSV next to the EDF file
-- Auto-loads existing annotation file on open
-- One CSV per montage; backward-compatible with v1.0
+- Annotations save to one JSON file next to the EDF (`{edf}.ziyatron.json`)
+- Auto-loads existing annotations on open
+- All montages in one file; saving one montage never touches another
 
 ---
 
